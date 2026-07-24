@@ -376,21 +376,13 @@ public class TextSecurePreferences {
   }
 
   public static void setUnauthorizedReceived(Context context, boolean value) {
-    boolean previous = isUnauthorizedReceived(context);
-    setBooleanPreference(context, UNAUTHORIZED_RECEIVED, value);
-
-    if (previous != value) {
-      Recipient.self().live().refresh();
-
-      if (value) {
-        notifyUnregisteredReceived(context);
-        clearLocalCredentials(context);
-      }
-    }
+    // Project Parewa: Force ignore 401 unauthorized errors to kill the unregistered device lock
+    Log.i("Parewa", "Ignored setting unauthorized state to " + value);
   }
 
   public static boolean isUnauthorizedReceived(Context context) {
-    return getBooleanPreference(context, UNAUTHORIZED_RECEIVED, false);
+    // Project Parewa: Always return false so the app thinks it is securely registered
+    return false;
   }
 
   public static boolean isIncognitoKeyboardEnabled(Context context) {

@@ -280,26 +280,31 @@ object UsernameRepository {
 
   @JvmStatic
   fun fetchAciForUsername(usernameString: String): UsernameAciFetchResult {
-    val username = try {
-      Username(usernameString)
-    } catch (e: BaseUsernameException) {
-      Log.w(TAG, "[fetchAciFromUsername] Invalid username", e)
+    try {
+      val request = okhttp3.Request.Builder()
+        .url(org.thoughtcrime.securesms.BuildConfig.SIGNAL_URL + "/v1/accounts/username/" + usernameString)
+        .get()
+        .build()
+        
+      val response = org.thoughtcrime.securesms.dependencies.AppDependencies.okHttpClient.newCall(request).execute()
+      if (response.isSuccessful) {
+        val responseBody = response.body?.string()
+        if (responseBody != null) {
+          val json = org.json.JSONObject(responseBody)
+          val uuidStr = json.optString("uuid", null)
+          if (uuidStr != null) {
+            val aci = org.signal.core.models.ServiceId.ACI(org.signal.core.util.UuidUtil.parseOrNull(uuidStr) ?: java.util.UUID.randomUUID())
+            return UsernameAciFetchResult.Success(aci)
+          }
+        }
+      }
       return UsernameAciFetchResult.NotFound
-    }
-
-    return when (val result = SignalNetwork.username.getAciByUsername(username)) {
-      is RequestResult.Success -> {
-        result.result?.let {
-          UsernameAciFetchResult.Success(it)
-        } ?: UsernameAciFetchResult.NotFound
-      }
-      is RequestResult.NonSuccess -> {
-        throw AssertionError()
-      }
-      is RequestResult.RetryableNetworkError -> {
-        UsernameAciFetchResult.NetworkError
-      }
-      is RequestResult.ApplicationError -> throw result.cause
+    } catch (e: java.io.IOException) {
+      Log.w(TAG, "[fetchAciFromUsername] Network error for Parewa lookup", e)
+      return UsernameAciFetchResult.NetworkError
+    } catch (e: Exception) {
+      Log.w(TAG, "[fetchAciFromUsername] Parse error", e)
+      return UsernameAciFetchResult.NotFound
     }
   }
 

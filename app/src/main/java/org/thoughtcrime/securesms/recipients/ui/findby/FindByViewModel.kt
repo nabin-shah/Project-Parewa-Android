@@ -61,9 +61,10 @@ class FindByViewModel(
   private fun performUsernameLookup(): FindByResult {
     val username = state.value.userEntry.trim()
 
-    if (!UsernameUtil.isValidUsernameForSearch(username)) {
-      return FindByResult.InvalidEntry
-    }
+    // Project Parewa: Allow any string (like email addresses) for search.
+    // if (!UsernameUtil.isValidUsernameForSearch(username)) {
+    //   return FindByResult.InvalidEntry
+    // }
 
     return when (val result = UsernameRepository.fetchAciForUsername(usernameString = username.removePrefix("@"))) {
       UsernameRepository.UsernameAciFetchResult.NetworkError -> FindByResult.NetworkError

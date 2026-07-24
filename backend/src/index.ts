@@ -454,8 +454,31 @@ app.post("/v1/directory/tokens", (_req: Request, res: Response) => {
   res.status(200).json({ results: [] }); // Return empty matches for now
 });
 
+app.post("/v1/directory/parewa", async (req: Request, res: Response) => {
+  console.log("[directory] POST /v1/directory/parewa");
+  try {
+    const numbers: string[] = req.body.numbers || [];
+    const results: Record<string, any> = {};
+    
+    for (const num of numbers) {
+      const uuid = await redis.hget("parewa:users", num);
+      if (uuid) {
+        results[num] = {
+          uuid: uuid,
+          pni: crypto.randomUUID()
+        };
+      }
+    }
+    res.status(200).json({ results });
+  } catch (error) {
+    console.error("[directory] Error processing bulk lookup:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.get("/v1/accounts/username/:username", async (req: Request, res: Response) => {
-  const username = req.params.username as string;
+  // Decode URI component to perfectly handle URL-encoded emails (e.g. test%40example.com -> test@example.com)
+  const username = decodeURIComponent(req.params.username as string);
   console.log(`[mock] GET /v1/accounts/username/${username}`);
   // In our MVP, email = username
   const uuid = await redis.hget("parewa:users", username);
@@ -464,6 +487,22 @@ app.get("/v1/accounts/username/:username", async (req: Request, res: Response) =
       uuid: uuid,
       pni: crypto.randomUUID(),
       username: username
+    });
+  } else {
+    res.status(404).json({ error: "User not found" });
+  }
+});
+
+app.get("/v1/accounts/number/:number", async (req: Request, res: Response) => {
+  const number = req.params.number as string;
+  console.log(`[mock] GET /v1/accounts/number/${number}`);
+  // In our MVP, phone number maps to the same field
+  const uuid = await redis.hget("parewa:users", number);
+  if (uuid) {
+    res.status(200).json({
+      uuid: uuid,
+      pni: crypto.randomUUID(),
+      username: number
     });
   } else {
     res.status(404).json({ error: "User not found" });

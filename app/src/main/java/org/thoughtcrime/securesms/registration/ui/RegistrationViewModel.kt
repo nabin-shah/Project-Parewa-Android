@@ -1132,6 +1132,7 @@ class RegistrationViewModel : ViewModel() {
     // Parewa Project: Mark registration as fully complete so we don't get trapped by persistent banners
     Log.i(TAG, "Project Parewa: Setting account.isRegistered = true to skip lingering system banners.")
     SignalStore.account.setRegistered(true)
+    TextSecurePreferences.setUnauthorizedReceived(org.thoughtcrime.securesms.dependencies.AppDependencies.application, false)
 
     val checkpoint = RegistrationCheckpoint.LOCAL_REGISTRATION_COMPLETE
 

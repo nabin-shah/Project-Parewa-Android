@@ -40,12 +40,14 @@ object UsernameUtil {
 
   @JvmStatic
   fun isValidUsernameForSearch(value: String): Boolean {
-    return value.isNotEmpty() && SEARCH_PATTERN.matcher(value).matches()
+    // Project Parewa: Allow all strings (including emails)
+    return value.isNotEmpty()
   }
 
   @JvmStatic
   fun sanitizeUsernameFromSearch(value: String): String {
-    return value.replace("[^a-zA-Z0-9_.]".toRegex(), "")
+    // Project Parewa: Do not strip characters so email domains remain intact
+    return value
   }
 
   @JvmStatic

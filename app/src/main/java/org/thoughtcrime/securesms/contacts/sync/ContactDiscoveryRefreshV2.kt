@@ -46,16 +46,9 @@ object ContactDiscoveryRefreshV2 {
   @Synchronized
   @JvmStatic
   fun refreshAll(context: Context, timeoutMs: Long? = null): ContactDiscovery.RefreshResult {
-    val recipientE164s: Set<String> = SignalDatabase.recipients.getAllE164s().sanitize()
-    val systemE164s: Set<String> = SystemContactsRepository.getAllDisplayNumbers(context).toE164s().sanitize()
-
-    return refreshInternal(
-      recipientE164s = recipientE164s,
-      systemE164s = systemE164s,
-      inputPreviousE164s = SignalDatabase.cds.getAllE164s(),
-      isPartialRefresh = false,
-      timeoutMs = timeoutMs
-    )
+    // Project Parewa: Do not upload or read local device contacts for hash discovery.
+    Log.i(TAG, "Project Parewa: Bypassing local device contact directory upload.")
+    return ContactDiscovery.RefreshResult(emptySet(), emptyMap())
   }
 
   @Throws(IOException::class)
@@ -91,49 +84,45 @@ object ContactDiscoveryRefreshV2 {
   @WorkerThread
   @Synchronized
   fun lookupE164(e164: String): ContactDiscovery.LookupResult? {
-    val result = SignalNetwork.cdsApi.getRegisteredUsers(
-      previousE164s = emptySet(),
-      newE164s = setOf(e164),
-      serviceIds = SignalDatabase.recipients.getAllServiceIdProfileKeyPairs(),
-      token = Optional.empty(),
-      timeoutMs = 10_000,
-      libsignalNetwork = AppDependencies.libsignalNetwork
-    ) {
-      Log.i(TAG, "Ignoring token for one-off lookup.")
-    }
-
-    val response = when (result) {
-      is NetworkResult.Success -> result.result
-      is NetworkResult.StatusCodeError -> {
-        when (val e = result.exception) {
-          is CdsiResourceExhaustedException -> {
-            Log.w(TAG, "CDS resource exhausted! Can try again in ${e.retryAfterSeconds} seconds.")
-            SignalStore.misc.cdsBlockedUtil = System.currentTimeMillis() + e.retryAfterSeconds.seconds.inWholeMilliseconds
-            throw e
+    try {
+      val jsonBody = org.json.JSONObject()
+      val numbersArray = org.json.JSONArray()
+      numbersArray.put(e164)
+      jsonBody.put("numbers", numbersArray)
+      
+      val request = okhttp3.Request.Builder()
+        .url(org.thoughtcrime.securesms.BuildConfig.SIGNAL_URL + "/v1/directory/parewa")
+        .post(okhttp3.RequestBody.create(okhttp3.MediaType.parse("application/json"), jsonBody.toString()))
+        .build()
+        
+      val response = org.thoughtcrime.securesms.dependencies.AppDependencies.okHttpClient.newCall(request).execute()
+      if (response.isSuccessful) {
+        val responseBody = response.body?.string()
+        if (responseBody != null) {
+          val json = org.json.JSONObject(responseBody)
+          val results = json.optJSONObject("results")
+          if (results != null && results.has(e164)) {
+            val item = results.getJSONObject(e164)
+            val uuid = item.getString("uuid")
+            val pni = item.getString("pni")
+            
+            val pniObj = org.signal.core.models.ServiceId.PNI(org.signal.core.util.UuidUtil.parseOrNull(pni) ?: java.util.UUID.randomUUID())
+            val aciObj = org.signal.core.models.ServiceId.ACI(org.signal.core.util.UuidUtil.parseOrNull(uuid) ?: java.util.UUID.randomUUID())
+            
+            val id = SignalDatabase.recipients.processIndividualCdsLookup(e164 = e164, aci = aciObj, pni = pniObj)
+            
+            return ContactDiscovery.LookupResult(
+              recipientId = id,
+              pni = pniObj,
+              aci = aciObj
+            )
           }
-
-          is CdsiInvalidTokenException -> {
-            Log.w(TAG, "We did not provide a token, but still got a token error! Unexpected, but ignoring.")
-            throw e
-          }
-
-          else -> throw e
         }
       }
-
-      is NetworkResult.NetworkError -> throw result.exception
-      is NetworkResult.ApplicationError -> throw result.throwable
+    } catch (e: Exception) {
+      Log.e(TAG, "Parewa one-off directory lookup failed", e)
     }
-
-    return response.results[e164]?.let { item ->
-      val id = SignalDatabase.recipients.processIndividualCdsLookup(e164 = e164, aci = item.aci.orElse(null), pni = item.pni)
-
-      ContactDiscovery.LookupResult(
-        recipientId = id,
-        pni = item.pni,
-        aci = item.aci?.orElse(null)
-      )
-    }
+    return null
   }
 
   @Throws(IOException::class)
@@ -169,63 +158,46 @@ object ContactDiscoveryRefreshV2 {
 
     stopwatch.split("preamble")
 
-    val result = SignalNetwork.cdsApi.getRegisteredUsers(
-      previousE164s = previousE164s,
-      newE164s = newE164s,
-      serviceIds = SignalDatabase.recipients.getAllServiceIdProfileKeyPairs(),
-      token = Optional.ofNullable(token),
-      timeoutMs = timeoutMs,
-      libsignalNetwork = AppDependencies.libsignalNetwork
-    ) { tokenToSave ->
-      stopwatch.split("network-pre-token")
-      if (!isPartialRefresh) {
-        SignalStore.misc.cdsToken = tokenToSave
-        SignalDatabase.cds.updateAfterFullCdsQuery(previousE164s + newE164s, allE164s + newE164s)
-        Log.d(TAG, "Token saved!")
-      } else {
-        SignalDatabase.cds.updateAfterPartialCdsQuery(newE164s)
-        Log.d(TAG, "Ignoring token.")
-      }
-      stopwatch.split("cds-db")
-    }
-
-    val response: CdsiV2Service.Response = when (result) {
-      is NetworkResult.Success -> result.result
-      is NetworkResult.StatusCodeError -> {
-        when (val e = result.exception) {
-          is CdsiResourceExhaustedException -> {
-            Log.w(TAG, "CDS resource exhausted! Can try again in ${e.retryAfterSeconds} seconds.")
-            SignalStore.misc.cdsBlockedUtil = System.currentTimeMillis() + e.retryAfterSeconds.seconds.inWholeMilliseconds
-            throw e
-          }
-
-          is CdsiInvalidTokenException -> {
-            Log.w(TAG, "Our token was invalid! Only thing we can do now is clear our local state :(")
-            SignalStore.misc.cdsToken = null
-            SignalDatabase.cds.clearAll()
-            throw e
-          }
-
-          else -> throw e
-        }
-      }
-
-      is NetworkResult.NetworkError -> throw result.exception
-      is NetworkResult.ApplicationError -> throw result.throwable
-    }
-
-    if (!isPartialRefresh && SignalStore.misc.isCdsBlocked) {
-      Log.i(TAG, "Successfully made a request while blocked -- clearing blocked state.")
-      SignalStore.misc.clearCdsBlocked()
-    }
-
-    Log.d(TAG, "[$tag] Used ${response.quotaUsedDebugOnly} quota.")
-    stopwatch.split("network-post-token")
-
     val registeredIds: MutableSet<RecipientId> = mutableSetOf()
     val rewrites: MutableMap<String, String> = mutableMapOf()
 
-    val transformed: Map<String, CdsV2Result> = response.results.mapValues { entry -> CdsV2Result(entry.value.pni, entry.value.aci.orElse(null)) }
+    val transformed: MutableMap<String, CdsV2Result> = mutableMapOf()
+    try {
+      val jsonBody = org.json.JSONObject()
+      val numbersArray = org.json.JSONArray()
+      newE164s.forEach { numbersArray.put(it) }
+      jsonBody.put("numbers", numbersArray)
+      
+      val request = okhttp3.Request.Builder()
+        .url(org.thoughtcrime.securesms.BuildConfig.SIGNAL_URL + "/v1/directory/parewa")
+        .post(okhttp3.RequestBody.create(okhttp3.MediaType.parse("application/json"), jsonBody.toString()))
+        .build()
+        
+      val response = org.thoughtcrime.securesms.dependencies.AppDependencies.okHttpClient.newCall(request).execute()
+      if (response.isSuccessful) {
+        val responseBody = response.body?.string()
+        if (responseBody != null) {
+          val json = org.json.JSONObject(responseBody)
+          val results = json.optJSONObject("results")
+          if (results != null) {
+            val keys = results.keys()
+            while (keys.hasNext()) {
+              val key = keys.next()
+              val item = results.getJSONObject(key)
+              val uuid = item.getString("uuid")
+              val pni = item.getString("pni")
+              
+              val pniObj = org.signal.core.models.ServiceId.PNI(org.signal.core.util.UuidUtil.parseOrNull(pni) ?: java.util.UUID.randomUUID())
+              val aciObj = org.signal.core.models.ServiceId.ACI(org.signal.core.util.UuidUtil.parseOrNull(uuid) ?: java.util.UUID.randomUUID())
+              transformed[key] = CdsV2Result(pniObj, aciObj)
+            }
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.e(TAG, "Parewa directory sync failed", e)
+      throw IOException(e)
+    }
     val fuzzyOutput: OutputResult<CdsV2Result> = FuzzyPhoneNumberHelper.generateOutput(transformed, fuzzyInput)
 
     SignalDatabase.recipients.rewritePhoneNumbers(fuzzyOutput.rewrites)
