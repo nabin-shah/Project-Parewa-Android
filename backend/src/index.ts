@@ -9,6 +9,7 @@ import Redis from "ioredis";
 import nodemailer from "nodemailer";
 import crypto from "node:crypto";
 import http from "http";
+import express, { Request, Response, NextFunction } from "express";
 import { WebSocketServer, WebSocket } from "ws";
 
 // ---- Configuration ----------------------------------------------------------
