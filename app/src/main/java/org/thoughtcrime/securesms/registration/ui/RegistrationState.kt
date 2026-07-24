@@ -58,6 +58,7 @@ data class RegistrationState(
   val sessionStateError: VerificationCodeRequestResult? = null,
   val registerAccountError: RegisterAccountResult? = null,
   val challengeInProgress: Boolean = false,
+  val parewaEmailEntryRequested: Boolean = false,
   val parewaOtpRequested: Boolean = false,
   val parewaOtpError: String? = null
 ) {
@@ -80,7 +81,7 @@ data class RegistrationState(
   }
 
   fun toNavigationStateOnly(): NavigationState {
-    return NavigationState(challengesRequested, captchaToken, registrationCheckpoint, canSkipSms, challengeInProgress)
+    return NavigationState(challengesRequested, captchaToken, registrationCheckpoint, canSkipSms, challengeInProgress, parewaEmailEntryRequested)
   }
 
   /**
@@ -92,6 +93,7 @@ data class RegistrationState(
     val captchaToken: String? = null,
     val registrationCheckpoint: RegistrationCheckpoint,
     val canSkipSms: Boolean,
-    val challengeInProgress: Boolean
+    val challengeInProgress: Boolean,
+    val parewaEmailEntryRequested: Boolean
   )
 }

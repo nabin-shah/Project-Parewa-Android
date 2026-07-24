@@ -168,7 +168,10 @@ class EnterPhoneNumberFragment : LoggingFragment(R.layout.fragment_registration_
       .map { it.toNavigationStateOnly() }
       .distinctUntilChanged()
       .observe(viewLifecycleOwner) { sharedState ->
-        if (sharedState.challengesRequested.contains(Challenge.CAPTCHA) && sharedState.captchaToken.isNotNullOrBlank()) {
+        if (sharedState.parewaEmailEntryRequested) {
+          Log.i(TAG, "Navigating to EmailEntryFragment triggered by ViewModel")
+          findNavController().safeNavigate(EnterPhoneNumberFragmentDirections.actionEnterEmail())
+        } else if (sharedState.challengesRequested.contains(Challenge.CAPTCHA) && sharedState.captchaToken.isNotNullOrBlank()) {
           sharedViewModel.submitCaptchaToken(requireContext())
         } else if (sharedState.challengesRequested.isNotEmpty()) {
           if (!sharedState.challengeInProgress) {

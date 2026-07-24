@@ -410,13 +410,16 @@ class RegistrationViewModel : ViewModel() {
         return@launch
       }
 
-      if (!validSession.allowedToRequestCode) {
-        Log.i(TAG, "Not allowed to request code! Remaining challenges: ${validSession.challengesRequested.joinToString()}")
-        handleSessionStateResult(context, ChallengeRequired(validSession.challengesRequested))
-        return@launch
+      // Project Parewa: We successfully retrieved a mock session ID!
+      // Now, completely skip the SMS network request (requestSmsCodeInternal)
+      // and immediately tell the UI to navigate to the EmailEntryFragment.
+      Log.i(TAG, "Mock session established. Skipping SMS code request and moving to Email entry.")
+      store.update {
+        it.copy(
+          inProgress = false,
+          parewaEmailEntryRequested = true
+        )
       }
-
-      requestSmsCodeInternal(context, validSession.sessionId, e164)
     }
   }
 
