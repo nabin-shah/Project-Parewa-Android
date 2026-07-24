@@ -43,11 +43,17 @@ services:
   coturn:
     image: coturn/coturn:latest
     container_name: parewa-coturn
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-    command: -c /etc/coturn/turnserver.conf
+    restart: always
+    network_mode: "host"
+    command:
+      - --log-file=stdout
+      - --listening-port=3478
+      - --fingerprint
+      - --lt-cred-mech
+      - --realm=parewa.local
+      - --user=parewa:parewapassword
+      - --min-port=49152
+      - --max-port=65535
 
   # ============================================================================
   # Nginx — TLS Termination & Reverse Proxy
