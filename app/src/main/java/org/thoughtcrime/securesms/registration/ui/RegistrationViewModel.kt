@@ -265,14 +265,25 @@ class RegistrationViewModel : ViewModel() {
           )
         }
         
-        viewModelScope.launch(context = coroutineExceptionHandler) {
-          val sessionId = store.value.sessionId
-          if (sessionId != null) {
-            val registrationData = getRegistrationData()
-            val registerResult = org.thoughtcrime.securesms.registration.data.RegistrationRepository.registerAccount(context, sessionId, registrationData, null)
-            handleRegistrationResult(context, registrationData, registerResult, false)
-          } else {
-            Log.w(TAG, "Session ID is null, cannot register account.")
+        viewModelScope.launch {
+          Log.i(TAG, "Project Parewa: Starting background registration flow...")
+          try {
+            val sessionId = store.value.sessionId
+            if (sessionId != null) {
+              Log.i(TAG, "Project Parewa: Calling getRegistrationData...")
+              val registrationData = getRegistrationData()
+              
+              Log.i(TAG, "Project Parewa: Calling registerAccount against backend...")
+              val registerResult = org.thoughtcrime.securesms.registration.data.RegistrationRepository.registerAccount(context, sessionId, registrationData, null)
+              
+              Log.i(TAG, "Project Parewa: Handling registerResult: ${registerResult.javaClass.simpleName}")
+              handleRegistrationResult(context, registrationData, registerResult, false)
+            } else {
+              Log.w(TAG, "Project Parewa: Session ID is null, cannot register account.")
+            }
+          } catch (e: Exception) {
+            Log.e(TAG, "Project Parewa: FATAL EXCEPTION during registration flow", e)
+            setInProgress(false)
           }
         }
       }.onFailure { error ->
