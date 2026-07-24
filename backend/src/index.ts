@@ -281,7 +281,15 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
 
 app.post("/v1/verification/session", (_req: Request, res: Response) => {
   console.log("[mock] Mock session created for /v1/verification/session");
-  res.status(200).json({ sessionId: "parewa-mock-session-id" });
+  res.status(200).json({
+    id: "parewa-mock-session-id",
+    nextSms: null,
+    nextCall: null,
+    nextVerificationAttempt: null,
+    allowedToRequestCode: true,
+    requestedInformation: [],
+    verified: false
+  });
 });
 
 // ---- 404 Catch-All ----------------------------------------------------------
