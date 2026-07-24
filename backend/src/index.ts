@@ -4,11 +4,12 @@
 // ==============================================================================
 
 import "dotenv/config";
-import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import Redis from "ioredis";
 import nodemailer from "nodemailer";
 import crypto from "node:crypto";
+import http from "http";
+import { WebSocketServer, WebSocket } from "ws";
 
 // ---- Configuration ----------------------------------------------------------
 
@@ -70,6 +71,11 @@ function isValidEmail(email: unknown): email is string {
 // ---- Express App ------------------------------------------------------------
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ noServer: true });
+
+// Store active WebSocket connections by UUID
+const activeConnections = new Map<string, WebSocket>();
 
 app.use(cors());
 app.use(express.json());
@@ -445,13 +451,19 @@ app.post("/v1/directory/tokens", (_req: Request, res: Response) => {
   res.status(200).json({ results: [] }); // Return empty matches for now
 });
 
-app.get("/v1/accounts/username/:username", (req: Request, res: Response) => {
+app.get("/v1/accounts/username/:username", async (req: Request, res: Response) => {
   console.log(`[mock] GET /v1/accounts/username/${req.params.username}`);
-  res.status(200).json({
-    uuid: crypto.randomUUID(),
-    pni: crypto.randomUUID(),
-    username: req.params.username
-  });
+  // In our MVP, email = username
+  const uuid = await redis.hget("parewa:users", req.params.username);
+  if (uuid) {
+    res.status(200).json({
+      uuid: uuid,
+      pni: crypto.randomUUID(),
+      username: req.params.username
+    });
+  } else {
+    res.status(404).json({ error: "User not found" });
+  }
 });
 
 app.get("/v1/profiles/:identifier", (req: Request, res: Response) => {
@@ -475,9 +487,99 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
+// ---- WebSocket Upgrade & Logic ----------------------------------------------
+
+server.on("upgrade", (request, socket, head) => {
+  const authHeader = request.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Basic ")) {
+    console.log("[WS] Rejecting connection: Missing Basic Auth");
+    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  try {
+    const b64auth = authHeader.split(" ")[1];
+    const [uuid] = Buffer.from(b64auth, "base64").toString().split(":");
+    
+    wss.handleUpgrade(request, socket, head, async (ws) => {
+      console.log(`[WS] Connection established for UUID: ${uuid}`);
+      activeConnections.set(uuid, ws);
+
+      // Ping/Pong keepalive
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.ping();
+      }, 30000);
+
+      // Flush offline messages
+      const offlineMessages = await redis.lrange(`parewa:messages:${uuid}`, 0, -1);
+      if (offlineMessages.length > 0) {
+        console.log(`[WS] Flushing ${offlineMessages.length} offline messages to ${uuid}`);
+        for (const msg of offlineMessages) {
+          ws.send(msg);
+        }
+        await redis.del(`parewa:messages:${uuid}`);
+      }
+
+      ws.on("close", () => {
+        console.log(`[WS] Connection closed for UUID: ${uuid}`);
+        activeConnections.delete(uuid);
+        clearInterval(pingInterval);
+      });
+    });
+  } catch (e) {
+    socket.destroy();
+  }
+});
+
+app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
+  try {
+    const destination = req.params.destination; // UUID of recipient
+    console.log(`[messages] PUT /v1/messages/${destination} - Routing message...`);
+
+    const payload = JSON.stringify(req.body);
+    const ws = activeConnections.get(destination);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // Send directly over WebSocket
+      ws.send(payload);
+      console.log(`[messages] Routed directly via WebSocket to ${destination}`);
+    } else {
+      // Offline: push to Redis queue
+      await redis.rpush(`parewa:messages:${destination}`, payload);
+      console.log(`[messages] Stored offline for ${destination}`);
+    }
+
+    res.status(200).json({ status: "SUCCESS" });
+  } catch (error) {
+    console.error("[messages] Error routing message:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/v1/messages", async (req: Request, res: Response) => {
+  try {
+    const uuid = getUuidFromAuth(req);
+    console.log(`[messages] GET /v1/messages - Fetching offline messages for ${uuid}`);
+
+    const offlineMessages = await redis.lrange(`parewa:messages:${uuid}`, 0, -1);
+    if (offlineMessages.length > 0) {
+      await redis.del(`parewa:messages:${uuid}`);
+      // Parse them back to JSON array
+      const parsedMessages = offlineMessages.map(msg => JSON.parse(msg));
+      res.status(200).json({ messages: parsedMessages });
+    } else {
+      res.status(200).json({ messages: [] });
+    }
+  } catch (error) {
+    console.error("[messages] Error fetching messages:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ---- Start Server -----------------------------------------------------------
 
-app.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log("============================================");
   console.log("  Project Parewa — Auth Service");
   console.log(`  Listening on http://0.0.0.0:${PORT}`);

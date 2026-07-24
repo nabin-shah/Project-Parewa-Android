@@ -10,11 +10,13 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/ws": "^8.18.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^6.9.16",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
