@@ -142,6 +142,11 @@ class EnterPhoneNumberFragment : LoggingFragment(R.layout.fragment_registration_
       presentRegisterButton(sharedState)
       updateEnabledControls(sharedState.inProgress, sharedState.isReRegister)
 
+      // Project Parewa: Skip error processing if we are moving to email entry
+      if (sharedState.parewaEmailEntryRequested) {
+        return@observe
+      }
+
       sharedState.networkError?.let {
         presentNetworkError(it)
         sharedViewModel.networkErrorShown()

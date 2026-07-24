@@ -292,6 +292,11 @@ app.post("/v1/verification/session", (_req: Request, res: Response) => {
   });
 });
 
+app.post("/v1/verification/session/:sessionId/code", (_req: Request, res: Response) => {
+  console.log("[mock] Mock code request for session");
+  res.status(200).json({ status: "SUCCESS" });
+});
+
 // ---- 404 Catch-All ----------------------------------------------------------
 
 app.use((_req: Request, res: Response) => {

@@ -739,6 +739,10 @@ class RegistrationViewModel : ViewModel() {
 
   private fun handleGenericError(cause: Throwable) {
     Log.w(TAG, "Encountered unknown error!", cause)
+    if (store.value.parewaEmailEntryRequested) {
+      Log.i(TAG, "Ignoring generic error because parewaEmailEntryRequested is true.")
+      return
+    }
     store.update {
       it.copy(inProgress = false, networkError = cause)
     }
