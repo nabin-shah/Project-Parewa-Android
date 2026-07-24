@@ -105,7 +105,19 @@ app.get("/health", (_req: Request, res: Response) => {
 
 app.post("/v1/accounts/sms/code", async (req: Request, res: Response): Promise<void> => {
   try {
+    // Guard: express.json() only parses when Content-Type is application/json.
+    // If the header is missing, req.body is undefined → destructuring would fail.
+    if (!req.body || typeof req.body !== "object") {
+      console.warn("[otp] Empty or unparsed body. Content-Type:", req.headers["content-type"]);
+      res.status(400).json({
+        error: "Request body is empty. Ensure Content-Type is set to application/json.",
+      });
+      return;
+    }
+
     const { email } = req.body;
+
+    console.log("[otp] Received request — email:", email, "| Content-Type:", req.headers["content-type"]);
 
     // 1. Validate
     if (!isValidEmail(email)) {
