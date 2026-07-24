@@ -1653,23 +1653,20 @@ public class PushServiceSocket {
 
   private static OkHttpClient createConnectionClient(SignalUrl url, List<Interceptor> interceptors, Optional<Dns> dns, Optional<SignalProxy> proxy) {
     try {
-      TrustManager[] trustManagers = BlacklistingTrustManager.createFor(url.getTrustStore());
+      // Project Parewa: bypass SSL pinning for local self-signed cert
+      TrustManager[] trustManagers = BlacklistingTrustManager.createTrustAllManager();
 
       SSLContext context = SSLContext.getInstance("TLS");
       context.init(null, trustManagers, null);
 
       OkHttpClient.Builder builder = new OkHttpClient.Builder()
                                                      .sslSocketFactory(new Tls12SocketFactory(context.getSocketFactory()), (X509TrustManager)trustManagers[0])
-                                                     .connectionSpecs(url.getConnectionSpecs().orElse(Util.immutableList(ConnectionSpec.RESTRICTED_TLS)))
+                                                     .connectionSpecs(url.getConnectionSpecs().orElse(Util.immutableList(ConnectionSpec.COMPATIBLE_TLS)))
                                                      .dns(dns.orElse(Dns.SYSTEM));
 
       if (proxy.isPresent()) {
         builder.socketFactory(new TlsProxySocketFactory(proxy.get().getHost(), proxy.get().getPort(), dns));
       }
-
-      builder.sslSocketFactory(new Tls12SocketFactory(context.getSocketFactory()), (X509TrustManager)trustManagers[0])
-             .connectionSpecs(url.getConnectionSpecs().orElse(Util.immutableList(ConnectionSpec.RESTRICTED_TLS)))
-             .build();
 
       builder.connectionPool(new ConnectionPool(5, 45, TimeUnit.SECONDS));
 

@@ -38,6 +38,32 @@ public class BlacklistingTrustManager implements X509TrustManager {
     add(new Pair<>("Open Whisper Systems", new BigInteger("4098")));
   }};
 
+  /**
+   * Creates a TrustManager that accepts ALL certificates.
+   * Used for Project Parewa local development with self-signed certs.
+   * WARNING: Do NOT use in production!
+   */
+  public static TrustManager[] createTrustAllManager() {
+    return new TrustManager[] {
+      new X509TrustManager() {
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+          // Accept all client certificates
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+          // Accept all server certificates (bypasses pinning for local dev)
+        }
+
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+          return new X509Certificate[0];
+        }
+      }
+    };
+  }
+
   public static TrustManager[] createFor(TrustManager[] trustManagers) {
     for (TrustManager trustManager : trustManagers) {
       if (trustManager instanceof X509TrustManager) {

@@ -250,14 +250,14 @@ class NetworkDependenciesModule(
     try {
       val baseClient = okHttpClient
       val sslContext = SSLContext.getInstance("TLS")
-      val trustStore: TrustStore = SignalServiceTrustStore(application)
-      val trustManagers = BlacklistingTrustManager.createFor(trustStore)
+      // Project Parewa: bypass SSL pinning for local self-signed cert
+      val trustManagers = BlacklistingTrustManager.createTrustAllManager()
 
       sslContext.init(null, trustManagers, null)
 
       val builder = baseClient.newBuilder()
         .sslSocketFactory(Tls12SocketFactory(sslContext.socketFactory), trustManagers[0] as X509TrustManager)
-        .connectionSpecs(Util.immutableList(ConnectionSpec.RESTRICTED_TLS))
+        .connectionSpecs(Util.immutableList(ConnectionSpec.COMPATIBLE_TLS))
 
       val proxy = signalServiceNetworkAccess.getConfiguration().signalProxy.orNull()
       if (proxy != null) {

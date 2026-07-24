@@ -28,6 +28,7 @@ data class RegistrationState(
   val enteredCode: String = "",
   val phoneNumber: Phonenumber.PhoneNumber? = fetchExistingE164FromValues(),
   val nationalNumber: String = "",
+  val email: String? = null,
   val inProgress: Boolean = false,
   val isReRegister: Boolean = false,
   val recoveryPassword: String? = null,
@@ -56,7 +57,9 @@ data class RegistrationState(
   val sessionCreationError: RegistrationSessionResult? = null,
   val sessionStateError: VerificationCodeRequestResult? = null,
   val registerAccountError: RegisterAccountResult? = null,
-  val challengeInProgress: Boolean = false
+  val challengeInProgress: Boolean = false,
+  val parewaOtpRequested: Boolean = false,
+  val parewaOtpError: String? = null
 ) {
   companion object {
     private val TAG = Log.tag(RegistrationState::class)

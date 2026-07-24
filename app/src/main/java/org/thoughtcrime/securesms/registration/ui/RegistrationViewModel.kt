@@ -57,6 +57,7 @@ import org.thoughtcrime.securesms.registration.data.AccountRegistrationResult
 import org.thoughtcrime.securesms.registration.data.LocalRegistrationMetadataUtil
 import org.thoughtcrime.securesms.registration.data.RegistrationData
 import org.thoughtcrime.securesms.registration.data.RegistrationRepository
+import org.thoughtcrime.securesms.registration.data.ParewaRegistrationApi
 import org.thoughtcrime.securesms.registration.data.network.BackupAuthCheckResult
 import org.thoughtcrime.securesms.registration.data.network.Challenge
 import org.thoughtcrime.securesms.registration.data.network.RegisterAccountResult
@@ -189,6 +190,90 @@ class RegistrationViewModel : ViewModel() {
         phoneNumber = phoneNumber,
         sessionId = null
       )
+    }
+  }
+
+  /**
+   * Project Parewa: Set the email for email-based registration.
+   */
+  fun setEmail(email: String) {
+    store.update {
+      it.copy(email = email)
+    }
+  }
+
+  /**
+   * Project Parewa: Request OTP via email from local backend.
+   * Bypasses Signal's session-based registration entirely.
+   */
+  fun requestParewaOtp(email: String) {
+    Log.d(TAG, "requestParewaOtp() for email: $email")
+    store.update {
+      it.copy(inProgress = true, email = email, parewaOtpError = null)
+    }
+
+    viewModelScope.launch(context = coroutineExceptionHandler) {
+      val result = ParewaRegistrationApi.requestOtp(email)
+
+      result.onSuccess {
+        Log.i(TAG, "Parewa OTP request successful.")
+        store.update {
+          it.copy(
+            inProgress = false,
+            parewaOtpRequested = true,
+            parewaOtpError = null,
+            registrationCheckpoint = RegistrationCheckpoint.VERIFICATION_CODE_REQUESTED
+          )
+        }
+      }.onFailure { error ->
+        Log.w(TAG, "Parewa OTP request failed.", error)
+        store.update {
+          it.copy(
+            inProgress = false,
+            parewaOtpError = error.message ?: "OTP request failed"
+          )
+        }
+      }
+    }
+  }
+
+  /**
+   * Project Parewa: Verify OTP code against local backend.
+   */
+  fun verifyParewaOtp(context: Context, code: String) {
+    val email = store.value.email ?: return bail { Log.w(TAG, "Email is null during OTP verification.") }
+    Log.d(TAG, "verifyParewaOtp() for email: $email")
+
+    store.update {
+      it.copy(
+        inProgress = true,
+        enteredCode = code,
+        registrationCheckpoint = RegistrationCheckpoint.VERIFICATION_CODE_ENTERED
+      )
+    }
+
+    viewModelScope.launch(context = coroutineExceptionHandler) {
+      val result = ParewaRegistrationApi.verifyOtp(email, code)
+
+      result.onSuccess {
+        Log.i(TAG, "Parewa OTP verification successful.")
+        store.update {
+          it.copy(
+            inProgress = false,
+            verified = true,
+            registrationCheckpoint = RegistrationCheckpoint.VERIFICATION_CODE_VALIDATED
+          )
+        }
+      }.onFailure { error ->
+        Log.w(TAG, "Parewa OTP verification failed.", error)
+        store.update {
+          it.copy(
+            inProgress = false,
+            parewaOtpError = error.message ?: "OTP verification failed",
+            incorrectCodeAttempts = it.incorrectCodeAttempts + 1
+          )
+        }
+      }
     }
   }
 

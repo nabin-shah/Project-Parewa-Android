@@ -398,7 +398,8 @@ public class OkHttpWebSocketConnection extends WebSocketListener implements WebS
   private Pair<SSLSocketFactory, X509TrustManager> createTlsSocketFactory(TrustStore trustStore) {
     try {
       SSLContext     context       = SSLContext.getInstance("TLS");
-      TrustManager[] trustManagers = BlacklistingTrustManager.createFor(trustStore);
+      // Project Parewa: bypass SSL pinning for local self-signed cert
+      TrustManager[] trustManagers = BlacklistingTrustManager.createTrustAllManager();
       context.init(null, trustManagers, null);
 
       return new Pair<>(context.getSocketFactory(), (X509TrustManager) trustManagers[0]);

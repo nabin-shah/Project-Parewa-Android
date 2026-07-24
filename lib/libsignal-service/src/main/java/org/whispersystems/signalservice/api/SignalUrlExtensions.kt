@@ -36,7 +36,7 @@ fun <T : SignalUrl> T.buildOkHttpClient(configuration: SignalServiceConfiguratio
 
   val builder = OkHttpClient.Builder()
     .sslSocketFactory(socketFactory, trustManager)
-    .connectionSpecs(this.connectionSpecs.orElse(Util.immutableList(ConnectionSpec.RESTRICTED_TLS)))
+    .connectionSpecs(this.connectionSpecs.orElse(Util.immutableList(ConnectionSpec.COMPATIBLE_TLS)))
     .retryOnConnectionFailure(false)
     .readTimeout(30, TimeUnit.SECONDS)
     .connectTimeout(30, TimeUnit.SECONDS)
@@ -56,7 +56,8 @@ fun <T : SignalUrl> T.buildOkHttpClient(configuration: SignalServiceConfiguratio
 private fun createTlsSocketFactory(trustStore: TrustStore): Pair<SSLSocketFactory, X509TrustManager> {
   return try {
     val context = SSLContext.getInstance("TLS")
-    val trustManagers = BlacklistingTrustManager.createFor(trustStore)
+    // Project Parewa: bypass SSL pinning for local self-signed cert
+    val trustManagers = BlacklistingTrustManager.createTrustAllManager()
     context.init(null, trustManagers, null)
     Tls12SocketFactory(context.socketFactory) to trustManagers[0] as X509TrustManager
   } catch (e: NoSuchAlgorithmException) {

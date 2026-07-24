@@ -289,33 +289,14 @@ class SignalServiceNetworkAccess(context: Context) {
   )
 
   fun getConfiguration(): SignalServiceConfiguration {
-    return getConfiguration(SignalStore.account.e164)
+    // Project Parewa: Always use uncensored (direct) configuration
+    // to avoid domain fronting which would bypass our local backend
+    return uncensoredConfiguration
   }
 
   fun getConfiguration(e164: String?): SignalServiceConfiguration {
-    if (e164 == null || SignalStore.proxy.isProxyEnabled) {
-      return uncensoredConfiguration
-    }
-
-    val countryCode: Int = PhoneNumberUtil.getInstance().parse(e164, null).countryCode
-
-    return when (SignalStore.settings.censorshipCircumventionEnabled) {
-      SettingsValues.CensorshipCircumventionEnabled.ENABLED -> {
-        censorshipConfiguration[countryCode] ?: defaultCensoredConfiguration
-      }
-
-      SettingsValues.CensorshipCircumventionEnabled.DISABLED -> {
-        uncensoredConfiguration
-      }
-
-      SettingsValues.CensorshipCircumventionEnabled.DEFAULT -> {
-        if (defaultCensoredCountryCodes.contains(countryCode)) {
-          censorshipConfiguration[countryCode] ?: defaultCensoredConfiguration
-        } else {
-          uncensoredConfiguration
-        }
-      }
-    }
+    // Project Parewa: Always return direct configuration
+    return uncensoredConfiguration
   }
 
   fun isCensored(): Boolean {

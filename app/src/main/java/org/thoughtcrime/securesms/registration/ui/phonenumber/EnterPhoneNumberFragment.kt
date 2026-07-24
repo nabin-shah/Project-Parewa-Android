@@ -569,22 +569,16 @@ class EnterPhoneNumberFragment : LoggingFragment(R.layout.fragment_registration_
   private fun startNormalRegistration() {
     ViewUtil.hideKeyboard(requireContext(), phoneNumberInputLayout)
     sharedViewModel.setInProgress(true)
-    val hasFcm = validateFcmStatus(requireContext())
-    if (hasFcm) {
-      sharedViewModel.uiState.observe(viewLifecycleOwner, FcmTokenRetrievedObserver())
-      sharedViewModel.fetchFcmToken(requireContext())
+
+    val value = sharedViewModel.uiState.value
+    if (value?.phoneNumber == null) {
+      fragmentViewModel.setError(EnterPhoneNumberState.Error.INVALID_PHONE_NUMBER)
+      sharedViewModel.setInProgress(false)
     } else {
-      sharedViewModel.uiState.value?.let { value ->
-        val now = System.currentTimeMillis().milliseconds
-        if (value.phoneNumber == null) {
-          fragmentViewModel.setError(EnterPhoneNumberState.Error.INVALID_PHONE_NUMBER)
-          sharedViewModel.setInProgress(false)
-        } else if (now < value.nextSmsTimestamp) {
-          moveToVerificationEntryScreen()
-        } else {
-          presentConfirmNumberDialog(value.phoneNumber, value.isReRegister, value.canSkipSms, missingFcmConsentRequired = true)
-        }
-      }
+      // Project Parewa: Store phone number locally for contact discovery
+      // and navigate directly to the email entry screen, bypassing SMS network flow.
+      sharedViewModel.setInProgress(false)
+      findNavController().safeNavigate(EnterPhoneNumberFragmentDirections.actionEnterEmail())
     }
   }
 
@@ -593,7 +587,8 @@ class EnterPhoneNumberFragment : LoggingFragment(R.layout.fragment_registration_
       fragmentViewModel.setError(EnterPhoneNumberState.Error.INVALID_PHONE_NUMBER)
       sharedViewModel.setInProgress(false)
     } else {
-      presentConfirmNumberDialog(value.phoneNumber, value.isReRegister, value.canSkipSms, missingFcmConsentRequired = false)
+      sharedViewModel.setInProgress(false)
+      findNavController().safeNavigate(EnterPhoneNumberFragmentDirections.actionEnterEmail())
     }
   }
 

@@ -85,7 +85,8 @@ class EnterCodeFragment : LoggingFragment(R.layout.fragment_registration_enter_c
     }
 
     binding.code.setOnCompleteListener {
-      sharedViewModel.verifyCodeWithoutRegistrationLock(requireContext(), it)
+      // Project Parewa: use email-based OTP verification
+      sharedViewModel.verifyParewaOtp(requireContext(), it)
     }
 
     binding.havingTroubleButton.setOnClickListener {
@@ -95,14 +96,22 @@ class EnterCodeFragment : LoggingFragment(R.layout.fragment_registration_enter_c
     binding.callMeCountDown.apply {
       setTextResources(R.string.RegistrationActivity_call, R.string.RegistrationActivity_call_me_instead_available_in)
       setOnClickListener {
-        sharedViewModel.requestVerificationCall(requireContext())
+        // Project Parewa: phone calls not supported, resend email OTP instead
+        val email = sharedViewModel.state.value.email
+        if (email != null) {
+          sharedViewModel.requestParewaOtp(email)
+        }
       }
     }
 
     binding.resendSmsCountDown.apply {
       setTextResources(R.string.RegistrationActivity_resend_code, R.string.RegistrationActivity_resend_sms_available_in)
       setOnClickListener {
-        sharedViewModel.requestSmsCode(requireContext())
+        // Project Parewa: resend email OTP instead of SMS
+        val email = sharedViewModel.state.value.email
+        if (email != null) {
+          sharedViewModel.requestParewaOtp(email)
+        }
       }
     }
 
@@ -172,9 +181,15 @@ class EnterCodeFragment : LoggingFragment(R.layout.fragment_registration_enter_c
 
   override fun onResume() {
     super.onResume()
-    sharedViewModel.phoneNumber?.let {
-      val formatted = PhoneNumberUtil.getInstance().format(it, PhoneNumberUtil.PhoneNumberFormat.INTERNATIONAL)
-      binding.verificationSubheader.text = requireContext().getString(R.string.RegistrationActivity_enter_the_code_we_sent_to_s, formatted)
+    // Project Parewa: Show email instead of phone number in the subheader
+    val email = sharedViewModel.state.value.email
+    if (email != null) {
+      binding.verificationSubheader.text = requireContext().getString(R.string.RegistrationActivity_enter_the_code_we_sent_to_s, email)
+    } else {
+      sharedViewModel.phoneNumber?.let {
+        val formatted = PhoneNumberUtil.getInstance().format(it, PhoneNumberUtil.PhoneNumberFormat.INTERNATIONAL)
+        binding.verificationSubheader.text = requireContext().getString(R.string.RegistrationActivity_enter_the_code_we_sent_to_s, formatted)
+      }
     }
   }
 
