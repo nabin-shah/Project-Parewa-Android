@@ -352,7 +352,9 @@ app.put("/v1/profile", (_req: Request, res: Response) => {
 
 // Helper to get UUID from Basic Auth (or return a fallback for testing)
 function getUuidFromAuth(req: Request): string {
-  const authHeader = req.headers.authorization;
+  let authHeader = req.headers.authorization;
+  if (Array.isArray(authHeader)) authHeader = authHeader[0];
+
   if (authHeader && authHeader.startsWith("Basic ")) {
     try {
       const b64auth = authHeader.split(" ")[1];
@@ -491,7 +493,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 // ---- WebSocket Upgrade & Logic ----------------------------------------------
 
 server.on("upgrade", (request, socket, head) => {
-  const authHeader = request.headers.authorization;
+  let authHeader = request.headers.authorization;
+  if (Array.isArray(authHeader)) authHeader = authHeader[0];
+
   if (!authHeader || !authHeader.startsWith("Basic ")) {
     console.log("[WS] Rejecting connection: Missing Basic Auth");
     socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
