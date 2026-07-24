@@ -255,8 +255,8 @@ class RegistrationViewModel : ViewModel() {
     viewModelScope.launch(context = coroutineExceptionHandler) {
       val result = ParewaRegistrationApi.verifyOtp(email, code)
 
-      result.onSuccess {
-        Log.i(TAG, "Parewa OTP verification successful.")
+      result.onSuccess { otpResponse ->
+        Log.i(TAG, "Parewa OTP verification successful. Received ACI: ${otpResponse.uuid}")
         store.update {
           it.copy(
             inProgress = true,
@@ -274,8 +274,8 @@ class RegistrationViewModel : ViewModel() {
               
               var e164 = store.value.phoneNumber?.toE164()
               if (e164 == null) {
-                  Log.w(TAG, "Project Parewa: phoneNumber is null! Falling back to dummy E164.")
-                  e164 = "+12345678901"
+                  Log.w(TAG, "Project Parewa: phoneNumber is null! Falling back to server-provided number: ${otpResponse.number}")
+                  e164 = otpResponse.number
               }
               val code = store.value.enteredCode
               val fcmToken = store.value.fcmToken
@@ -300,15 +300,15 @@ class RegistrationViewModel : ViewModel() {
               )
               
               val mockResult = org.thoughtcrime.securesms.registration.data.AccountRegistrationResult(
-                uuid = java.util.UUID.randomUUID().toString(),
-                pni = java.util.UUID.randomUUID().toString(),
-                storageCapable = false,
+                uuid = otpResponse.uuid,
+                pni = otpResponse.pni,
+                storageCapable = otpResponse.storageCapable,
                 number = registrationData.e164,
                 masterKey = null,
                 pin = null,
                 aciPreKeyCollection = aciPreKeyCollection,
                 pniPreKeyCollection = pniPreKeyCollection,
-                reRegistration = false
+                reRegistration = otpResponse.reRegistration
               )
               
               val registerResult = org.thoughtcrime.securesms.registration.data.network.RegisterAccountResult.Success(mockResult)

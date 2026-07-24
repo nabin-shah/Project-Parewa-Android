@@ -20,6 +20,14 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
+data class ParewaOtpResponse(
+  val uuid: String,
+  val pni: String,
+  val storageCapable: Boolean,
+  val reRegistration: Boolean,
+  val number: String
+)
+
 /**
  * Direct HTTP client for Project Parewa's local backend.
  * Bypasses Signal's complex session-based registration and talks
@@ -85,7 +93,7 @@ object ParewaRegistrationApi {
    * Verify the OTP code for the given email address.
    * Calls POST /v1/accounts/code with {"email": "...", "otp": "..."}
    */
-  suspend fun verifyOtp(email: String, code: String): Result<String> = withContext(Dispatchers.IO) {
+  suspend fun verifyOtp(email: String, code: String): Result<ParewaOtpResponse> = withContext(Dispatchers.IO) {
     try {
       val jsonBody = JSONObject().apply {
         put("email", email)
@@ -102,9 +110,17 @@ object ParewaRegistrationApi {
       val response = httpClient.newCall(request).execute()
 
       if (response.isSuccessful) {
-        val body = response.body?.string() ?: ""
+        val body = response.body?.string() ?: "{}"
         Log.i(TAG, "OTP verification successful: $body")
-        Result.success(body)
+        val json = JSONObject(body)
+        val otpResponse = ParewaOtpResponse(
+          uuid = json.optString("uuid", java.util.UUID.randomUUID().toString()),
+          pni = json.optString("pni", java.util.UUID.randomUUID().toString()),
+          storageCapable = json.optBoolean("storageCapable", false),
+          reRegistration = json.optBoolean("reRegistration", false),
+          number = json.optString("number", email)
+        )
+        Result.success(otpResponse)
       } else {
         val errorBody = response.body?.string() ?: "Unknown error"
         Log.w(TAG, "OTP verification failed (${response.code}): $errorBody")

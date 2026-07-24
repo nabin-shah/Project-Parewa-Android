@@ -263,10 +263,16 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
 
     console.log(`[otp] Verified successfully for ${normalizedEmail}`);
 
-    // 5. Return success
+    // 5. Return success and generate authoritative ACI/PNI
+    const uuid = crypto.randomUUID();
+    const pni = crypto.randomUUID();
+
     res.status(200).json({
-      message: "Verification successful",
-      verified: true,
+      uuid: uuid,
+      pni: pni,
+      storageCapable: false,
+      reRegistration: false,
+      number: normalizedEmail
     });
   } catch (err) {
     console.error("[otp] Unexpected error in /v1/accounts/code:", err);
