@@ -404,8 +404,8 @@ app.put("/v2/keys", async (req: Request, res: Response) => {
 
 app.get("/v2/keys/:identifier/:deviceId?", async (req: Request, res: Response) => {
   try {
-    const identifier = req.params.identifier; // Target user's UUID
-    const deviceId = req.params.deviceId || 1;
+    const identifier = req.params.identifier as string; // Target user's UUID
+    const deviceId = (req.params.deviceId as string) || 1;
     
     console.log(`[keys] GET /v2/keys - Fetching keys for ${identifier} (Device ${deviceId})`);
 
@@ -455,14 +455,15 @@ app.post("/v1/directory/tokens", (_req: Request, res: Response) => {
 });
 
 app.get("/v1/accounts/username/:username", async (req: Request, res: Response) => {
-  console.log(`[mock] GET /v1/accounts/username/${req.params.username}`);
+  const username = req.params.username as string;
+  console.log(`[mock] GET /v1/accounts/username/${username}`);
   // In our MVP, email = username
-  const uuid = await redis.hget("parewa:users", req.params.username);
+  const uuid = await redis.hget("parewa:users", username);
   if (uuid) {
     res.status(200).json({
       uuid: uuid,
       pni: crypto.randomUUID(),
-      username: req.params.username
+      username: username
     });
   } else {
     res.status(404).json({ error: "User not found" });
@@ -470,7 +471,8 @@ app.get("/v1/accounts/username/:username", async (req: Request, res: Response) =
 });
 
 app.get("/v1/profiles/:identifier", (req: Request, res: Response) => {
-  console.log(`[mock] GET /v1/profiles/${req.params.identifier}`);
+  const identifier = req.params.identifier as string;
+  console.log(`[mock] GET /v1/profiles/${identifier}`);
   res.status(200).json({
     identityKey: "mock_identity_key",
     version: "1"
@@ -539,7 +541,7 @@ server.on("upgrade", (request, socket, head) => {
 
 app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
   try {
-    const destination = req.params.destination; // UUID of recipient
+    const destination = req.params.destination as string; // UUID of recipient
     console.log(`[messages] PUT /v1/messages/${destination} - Routing message...`);
 
     const payload = JSON.stringify(req.body);
