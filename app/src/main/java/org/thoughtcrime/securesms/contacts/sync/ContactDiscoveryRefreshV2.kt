@@ -22,6 +22,8 @@ import org.whispersystems.signalservice.api.push.exceptions.CdsiInvalidTokenExce
 import org.whispersystems.signalservice.api.push.exceptions.CdsiResourceExhaustedException
 import java.io.IOException
 import java.util.Optional
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.seconds
 
@@ -92,7 +94,7 @@ object ContactDiscoveryRefreshV2 {
       
       val request = okhttp3.Request.Builder()
         .url(org.thoughtcrime.securesms.BuildConfig.SIGNAL_URL + "/v1/directory/parewa")
-        .post(okhttp3.RequestBody.create(okhttp3.MediaType.parse("application/json"), jsonBody.toString()))
+        .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
         .build()
         
       val response = org.thoughtcrime.securesms.dependencies.AppDependencies.okHttpClient.newCall(request).execute()
@@ -106,8 +108,8 @@ object ContactDiscoveryRefreshV2 {
             val uuid = item.getString("uuid")
             val pni = item.getString("pni")
             
-            val pniObj = org.signal.core.models.ServiceId.PNI(org.signal.core.util.UuidUtil.parseOrNull(pni) ?: java.util.UUID.randomUUID())
-            val aciObj = org.signal.core.models.ServiceId.ACI(org.signal.core.util.UuidUtil.parseOrNull(uuid) ?: java.util.UUID.randomUUID())
+            val pniObj = org.signal.core.models.ServiceId.PNI.from(org.signal.core.util.UuidUtil.parseOrNull(pni) ?: java.util.UUID.randomUUID())
+            val aciObj = org.signal.core.models.ServiceId.ACI.from(org.signal.core.util.UuidUtil.parseOrNull(uuid) ?: java.util.UUID.randomUUID())
             
             val id = SignalDatabase.recipients.processIndividualCdsLookup(e164 = e164, aci = aciObj, pni = pniObj)
             
@@ -170,7 +172,7 @@ object ContactDiscoveryRefreshV2 {
       
       val request = okhttp3.Request.Builder()
         .url(org.thoughtcrime.securesms.BuildConfig.SIGNAL_URL + "/v1/directory/parewa")
-        .post(okhttp3.RequestBody.create(okhttp3.MediaType.parse("application/json"), jsonBody.toString()))
+        .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
         .build()
         
       val response = org.thoughtcrime.securesms.dependencies.AppDependencies.okHttpClient.newCall(request).execute()
@@ -187,8 +189,8 @@ object ContactDiscoveryRefreshV2 {
               val uuid = item.getString("uuid")
               val pni = item.getString("pni")
               
-              val pniObj = org.signal.core.models.ServiceId.PNI(org.signal.core.util.UuidUtil.parseOrNull(pni) ?: java.util.UUID.randomUUID())
-              val aciObj = org.signal.core.models.ServiceId.ACI(org.signal.core.util.UuidUtil.parseOrNull(uuid) ?: java.util.UUID.randomUUID())
+            val pniObj = org.signal.core.models.ServiceId.PNI.from(org.signal.core.util.UuidUtil.parseOrNull(pni) ?: java.util.UUID.randomUUID())
+            val aciObj = org.signal.core.models.ServiceId.ACI.from(org.signal.core.util.UuidUtil.parseOrNull(uuid) ?: java.util.UUID.randomUUID())
               transformed[key] = CdsV2Result(pniObj, aciObj)
             }
           }

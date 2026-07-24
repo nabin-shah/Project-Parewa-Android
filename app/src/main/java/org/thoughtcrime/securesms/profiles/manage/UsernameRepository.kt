@@ -293,7 +293,7 @@ object UsernameRepository {
           val json = org.json.JSONObject(responseBody)
           val uuidStr = json.optString("uuid", null)
           if (uuidStr != null) {
-            val aci = org.signal.core.models.ServiceId.ACI(org.signal.core.util.UuidUtil.parseOrNull(uuidStr) ?: java.util.UUID.randomUUID())
+            val aci = org.signal.core.models.ServiceId.ACI.from(org.signal.core.util.UuidUtil.parseOrNull(uuidStr) ?: java.util.UUID.randomUUID())
             return UsernameAciFetchResult.Success(aci)
           }
         }
