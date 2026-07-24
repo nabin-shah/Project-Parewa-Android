@@ -259,10 +259,21 @@ class RegistrationViewModel : ViewModel() {
         Log.i(TAG, "Parewa OTP verification successful.")
         store.update {
           it.copy(
-            inProgress = false,
+            inProgress = true,
             verified = true,
             registrationCheckpoint = RegistrationCheckpoint.VERIFICATION_CODE_VALIDATED
           )
+        }
+        
+        viewModelScope.launch(context = coroutineExceptionHandler) {
+          val sessionId = store.value.sessionId
+          if (sessionId != null) {
+            val registrationData = getRegistrationData()
+            val registerResult = org.thoughtcrime.securesms.registration.data.RegistrationRepository.registerAccount(context, sessionId, registrationData, null)
+            handleRegistrationResult(context, registrationData, registerResult, false)
+          } else {
+            Log.w(TAG, "Session ID is null, cannot register account.")
+          }
         }
       }.onFailure { error ->
         Log.w(TAG, "Parewa OTP verification failed.", error)

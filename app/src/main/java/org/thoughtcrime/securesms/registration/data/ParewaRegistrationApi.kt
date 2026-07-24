@@ -89,7 +89,7 @@ object ParewaRegistrationApi {
     try {
       val jsonBody = JSONObject().apply {
         put("email", email)
-        put("otp", code)
+        put("code", code)
       }.toString()
 
       val request = Request.Builder()

@@ -305,6 +305,26 @@ app.post("/v1/verification/session/:sessionId/code", (_req: Request, res: Respon
   });
 });
 
+// ==============================================================================
+// PUT /v1/accounts/attributes
+// Mock endpoint to satisfy Signal client's registration provisioning.
+// ==============================================================================
+
+app.put("/v1/accounts/attributes", (_req: Request, res: Response) => {
+  console.log("[mock] Mock account attributes registration");
+  res.status(200).json({
+    uuid: "00000000-0000-0000-0000-000000000000",
+    pni: "00000000-0000-0000-0000-000000000001"
+  });
+});
+
+app.get("/v1/certificate/delivery", (_req: Request, res: Response) => {
+  console.log("[mock] Mock certificate delivery");
+  res.status(200).json({
+    certificate: "mock_certificate"
+  });
+});
+
 // ---- 404 Catch-All ----------------------------------------------------------
 
 app.use((_req: Request, res: Response) => {
