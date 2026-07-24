@@ -69,7 +69,7 @@ services:
     networks:
       - parewa-net
     depends_on:
-      - redis
+      - parewa-auth
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/health"]
       interval: 15s
@@ -77,20 +77,28 @@ services:
       retries: 3
 
   # ============================================================================
-  # backend — Signal Server API (placeholder; configured in Task 2)
-  # Listens on :8080 internally. NOT exposed to host directly.
-  # Access via Nginx reverse proxy only.
+  # parewa-auth — Email OTP Authentication Service (Task 2)
+  # Node.js + Express + TypeScript. Listens on :8080 internally.
+  # NOT exposed to host directly — accessed via Nginx reverse proxy.
+  # Provides mock Signal registration endpoints using email-based OTP.
   # ============================================================================
-  # backend:
-  #   image: parewa/signal-server:latest   # built in Task 2
-  #   container_name: parewa-backend
-  #   restart: unless-stopped
-  #   expose:
-  #     - "8080"
-  #   networks:
-  #     - parewa-net
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #   environment:
-  #     - REDIS_URL=redis://parewa-redis:6379
+  parewa-auth:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: parewa-backend
+    restart: unless-stopped
+    expose:
+      - "8080"
+    env_file:
+      - ../backend/.env
+    networks:
+      - parewa-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
