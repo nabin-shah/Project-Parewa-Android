@@ -67,7 +67,7 @@ services:
     networks:
       - parewa-net
     depends_on:
-      parewa-auth:
+      parewa-backend:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/health"]
@@ -76,12 +76,12 @@ services:
       retries: 3
 
   # ============================================================================
-  # parewa-auth — Email OTP Authentication Service (Task 2)
+  # parewa-backend — Email OTP Authentication Service (Task 2)
   # Node.js + Express + TypeScript. Listens on :8080 internally.
   # NOT exposed to host directly — accessed via Nginx reverse proxy.
   # Provides mock Signal registration endpoints using email-based OTP.
   # ============================================================================
-  parewa-auth:
+  parewa-backend:
     build:
       context: ../backend
       dockerfile: Dockerfile
