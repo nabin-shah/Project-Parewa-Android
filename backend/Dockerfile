@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Install dependencies first (layer caching)
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+RUN npm install --ignore-scripts
 
 # Copy source and compile TypeScript
 COPY tsconfig.json ./
@@ -27,7 +27,7 @@ RUN addgroup -S parewa && adduser -S parewa -G parewa
 
 # Install production dependencies only
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy compiled JS from builder stage
 COPY --from=builder /app/dist ./dist

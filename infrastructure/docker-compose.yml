@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ==============================================================================
 # Project Parewa — Local Docker Compose Stack
 # Server: 192.168.178.200 (Ubuntu Server)
