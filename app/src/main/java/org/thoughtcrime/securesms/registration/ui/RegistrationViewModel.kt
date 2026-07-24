@@ -270,11 +270,48 @@ class RegistrationViewModel : ViewModel() {
           try {
             val sessionId = store.value.sessionId
             if (sessionId != null) {
-              Log.i(TAG, "Project Parewa: Calling getRegistrationData...")
-              val registrationData = getRegistrationData()
+              Log.i(TAG, "Project Parewa: Bypassing strict getRegistrationData and network registration entirely!")
               
-              Log.i(TAG, "Project Parewa: Calling registerAccount against backend...")
-              val registerResult = org.thoughtcrime.securesms.registration.data.RegistrationRepository.registerAccount(context, sessionId, registrationData, null)
+              var e164 = store.value.phoneNumber?.toE164()
+              if (e164 == null) {
+                  Log.w(TAG, "Project Parewa: phoneNumber is null! Falling back to dummy E164.")
+                  e164 = "+12345678901"
+              }
+              val code = store.value.enteredCode
+              val fcmToken = store.value.fcmToken
+              
+              val registrationData = org.thoughtcrime.securesms.registration.data.RegistrationData(
+                code, e164, password, org.thoughtcrime.securesms.registration.data.RegistrationRepository.getRegistrationId(),
+                org.thoughtcrime.securesms.registration.data.RegistrationRepository.getProfileKey(e164), fcmToken,
+                org.thoughtcrime.securesms.registration.data.RegistrationRepository.getPniRegistrationId(), null
+              )
+              
+              org.thoughtcrime.securesms.keyvalue.SignalStore.account.generateAciIdentityKeyIfNecessary()
+              org.thoughtcrime.securesms.keyvalue.SignalStore.account.generatePniIdentityKeyIfNecessary()
+              
+              val aciPreKeyCollection = org.thoughtcrime.securesms.registration.data.RegistrationRepository.generateSignedAndLastResortPreKeys(
+                org.thoughtcrime.securesms.keyvalue.SignalStore.account.aciIdentityKey,
+                org.thoughtcrime.securesms.keyvalue.SignalStore.account.aciPreKeys
+              )
+              
+              val pniPreKeyCollection = org.thoughtcrime.securesms.registration.data.RegistrationRepository.generateSignedAndLastResortPreKeys(
+                org.thoughtcrime.securesms.keyvalue.SignalStore.account.pniIdentityKey,
+                org.thoughtcrime.securesms.keyvalue.SignalStore.account.pniPreKeys
+              )
+              
+              val mockResult = org.thoughtcrime.securesms.registration.data.AccountRegistrationResult(
+                uuid = java.util.UUID.randomUUID().toString(),
+                pni = java.util.UUID.randomUUID().toString(),
+                storageCapable = false,
+                number = registrationData.e164,
+                masterKey = null,
+                pin = null,
+                aciPreKeyCollection = aciPreKeyCollection,
+                pniPreKeyCollection = pniPreKeyCollection,
+                reRegistration = false
+              )
+              
+              val registerResult = org.thoughtcrime.securesms.registration.data.network.RegisterAccountResult.Success(mockResult)
               
               Log.i(TAG, "Project Parewa: Handling registerResult: ${registerResult.javaClass.simpleName}")
               handleRegistrationResult(context, registrationData, registerResult, false)
