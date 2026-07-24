@@ -87,23 +87,40 @@ services:
   # NOT exposed to host directly — accessed via Nginx reverse proxy.
   # Provides mock Signal registration endpoints using email-based OTP.
   # ============================================================================
-  parewa-backend:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
-    container_name: parewa-backend
+  # parewa-backend:
+  #   build:
+  #     context: ../backend
+  #     dockerfile: Dockerfile
+  #   container_name: parewa-backend
+  #   restart: unless-stopped
+  #   expose:
+  #     - "8080"
+  #   env_file:
+  #     - ../backend/.env
+  #   networks:
+  #     - parewa-net
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 3
+  parewa-nginx:
+    image: nginx:alpine
+    container_name: parewa-nginx
     restart: unless-stopped
-    expose:
-      - "8080"
-    env_file:
-      - ../backend/.env
+    ports:
+      - "80:80"
+      - "443:443"
     networks:
       - parewa-net
     depends_on:
-      redis:
+      backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: ["CMD-SHELL", "wget --no-check-certificate --spider -q https://127.0.0.1/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
