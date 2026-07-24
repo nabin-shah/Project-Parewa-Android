@@ -54,7 +54,7 @@ services:
   # Port 80  → HTTP (for redirect to HTTPS)
   # Port 443 → HTTPS / WSS → proxies to backend API on :8080
   # ============================================================================
-  nginx:
+nginx:
     image: nginx:alpine
     container_name: parewa-nginx
     restart: unless-stopped
@@ -67,20 +67,20 @@ services:
     networks:
       - parewa-net
     depends_on:
-      - parewa-auth
+      parewa-auth:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/health"]
       interval: 15s
       timeout: 5s
       retries: 3
-
   # ============================================================================
   # parewa-auth — Email OTP Authentication Service (Task 2)
   # Node.js + Express + TypeScript. Listens on :8080 internally.
   # NOT exposed to host directly — accessed via Nginx reverse proxy.
   # Provides mock Signal registration endpoints using email-based OTP.
   # ============================================================================
-  parewa-auth:
+parewa-auth:
     build:
       context: ../backend
       dockerfile: Dockerfile
@@ -96,7 +96,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 3
