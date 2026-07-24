@@ -274,6 +274,16 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
   }
 });
 
+// ==============================================================================
+// POST /v1/verification/session
+// Mock endpoint to satisfy Signal client's session requests during PIN/registration flow.
+// ==============================================================================
+
+app.post("/v1/verification/session", (_req: Request, res: Response) => {
+  console.log("[mock] Mock session created for /v1/verification/session");
+  res.status(200).json({ sessionId: "parewa-mock-session-id" });
+});
+
 // ---- 404 Catch-All ----------------------------------------------------------
 
 app.use((_req: Request, res: Response) => {
