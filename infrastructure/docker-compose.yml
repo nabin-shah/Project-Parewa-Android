@@ -1,0 +1,96 @@
+version: "3.9"
+
+# ==============================================================================
+# Project Parewa — Local Docker Compose Stack
+# Server: 192.168.178.200 (Ubuntu Server)
+# ==============================================================================
+
+networks:
+  parewa-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+
+services:
+
+  # ============================================================================
+  # Redis — Persistent Message Queue (AOF mode)
+  # Port 6379 is intentionally NOT exposed to host. Only accessible internally
+  # via parewa-net to the backend API service.
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: parewa-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - parewa-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # coturn — TURN/STUN Server for WebRTC NAT Traversal
+  # Ports:
+  #   3478  TCP/UDP — STUN/TURN (plain)
+  #   5349  TCP/UDP — STUN/TURN over TLS
+  #   49152-49300 UDP — TURN relay media port range
+  # ============================================================================
+  coturn:
+    image: coturn/coturn:latest
+    container_name: parewa-coturn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: -c /etc/coturn/turnserver.conf
+
+  # ============================================================================
+  # Nginx — TLS Termination & Reverse Proxy
+  # Port 80  → HTTP (for redirect to HTTPS)
+  # Port 443 → HTTPS / WSS → proxies to backend API on :8080
+  # ============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: parewa-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - parewa-net
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ============================================================================
+  # backend — Signal Server API (placeholder; configured in Task 2)
+  # Listens on :8080 internally. NOT exposed to host directly.
+  # Access via Nginx reverse proxy only.
+  # ============================================================================
+  # backend:
+  #   image: parewa/signal-server:latest   # built in Task 2
+  #   container_name: parewa-backend
+  #   restart: unless-stopped
+  #   expose:
+  #     - "8080"
+  #   networks:
+  #     - parewa-net
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   environment:
+  #     - REDIS_URL=redis://parewa-redis:6379

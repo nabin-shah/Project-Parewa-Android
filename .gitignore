@@ -34,3 +34,35 @@ kls_database.db
 .kotlin
 lefthook-local.yml
 sample-videos/
+
+
+# ==========================================
+# Custom Server Infrastructure & Secrets
+# ==========================================
+# Environment Variables & API Keys
+.env
+*.env
+env/
+.env.local
+
+# SSL Certificates & TLS Keys (Nginx)
+certs/
+*.crt
+*.key
+*.pem
+*.p12
+
+# Database & Storage Mounts
+redis_data/
+coturn_data/
+*.db
+*.sqlite
+
+# Local Custom Branding Working Files
+/parewa_logo_backup/
+
+# Windows/OS System Files
+[Th]umbs.db
+Desktop.ini
+
+PROJECT_STATE.md
