@@ -58,6 +58,7 @@ import org.thoughtcrime.securesms.registration.data.LocalRegistrationMetadataUti
 import org.thoughtcrime.securesms.registration.data.RegistrationData
 import org.thoughtcrime.securesms.registration.data.RegistrationRepository
 import org.thoughtcrime.securesms.registration.data.ParewaRegistrationApi
+import org.thoughtcrime.securesms.registration.data.ParewaOtpResponse
 import org.thoughtcrime.securesms.registration.data.network.BackupAuthCheckResult
 import org.thoughtcrime.securesms.registration.data.network.Challenge
 import org.thoughtcrime.securesms.registration.data.network.RegisterAccountResult
@@ -268,56 +269,51 @@ class RegistrationViewModel : ViewModel() {
         viewModelScope.launch {
           Log.i(TAG, "Project Parewa: Starting background registration flow...")
           try {
-            val sessionId = store.value.sessionId
-            if (sessionId != null) {
-              Log.i(TAG, "Project Parewa: Bypassing strict getRegistrationData and network registration entirely!")
-              
-              var e164 = store.value.phoneNumber?.toE164()
-              if (e164 == null) {
-                  Log.w(TAG, "Project Parewa: phoneNumber is null! Falling back to server-provided number: ${otpResponse.number}")
-                  e164 = otpResponse.number
-              }
-              val code = store.value.enteredCode
-              val fcmToken = store.value.fcmToken
-              
-              val registrationData = org.thoughtcrime.securesms.registration.data.RegistrationData(
-                code, e164, password, org.thoughtcrime.securesms.registration.data.RegistrationRepository.getRegistrationId(),
-                org.thoughtcrime.securesms.registration.data.RegistrationRepository.getProfileKey(e164), fcmToken,
-                org.thoughtcrime.securesms.registration.data.RegistrationRepository.getPniRegistrationId(), null
-              )
-              
-              org.thoughtcrime.securesms.keyvalue.SignalStore.account.generateAciIdentityKeyIfNecessary()
-              org.thoughtcrime.securesms.keyvalue.SignalStore.account.generatePniIdentityKeyIfNecessary()
-              
-              val aciPreKeyCollection = org.thoughtcrime.securesms.registration.data.RegistrationRepository.generateSignedAndLastResortPreKeys(
-                org.thoughtcrime.securesms.keyvalue.SignalStore.account.aciIdentityKey,
-                org.thoughtcrime.securesms.keyvalue.SignalStore.account.aciPreKeys
-              )
-              
-              val pniPreKeyCollection = org.thoughtcrime.securesms.registration.data.RegistrationRepository.generateSignedAndLastResortPreKeys(
-                org.thoughtcrime.securesms.keyvalue.SignalStore.account.pniIdentityKey,
-                org.thoughtcrime.securesms.keyvalue.SignalStore.account.pniPreKeys
-              )
-              
-              val mockResult = org.thoughtcrime.securesms.registration.data.AccountRegistrationResult(
-                uuid = otpResponse.uuid,
-                pni = otpResponse.pni,
-                storageCapable = otpResponse.storageCapable,
-                number = registrationData.e164,
-                masterKey = null,
-                pin = null,
-                aciPreKeyCollection = aciPreKeyCollection,
-                pniPreKeyCollection = pniPreKeyCollection,
-                reRegistration = otpResponse.reRegistration
-              )
-              
-              val registerResult = org.thoughtcrime.securesms.registration.data.network.RegisterAccountResult.Success(mockResult)
-              
-              Log.i(TAG, "Project Parewa: Handling registerResult: ${registerResult.javaClass.simpleName}")
-              handleRegistrationResult(context, registrationData, registerResult, false)
-            } else {
-              Log.w(TAG, "Project Parewa: Session ID is null, cannot register account.")
+            Log.i(TAG, "Project Parewa: Bypassing strict getRegistrationData and network registration entirely!")
+            
+            var e164 = store.value.phoneNumber?.toE164()
+            if (e164 == null) {
+                Log.w(TAG, "Project Parewa: phoneNumber is null! Falling back to server-provided number: ${otpResponse.number}")
+                e164 = otpResponse.number
             }
+            val code = store.value.enteredCode
+            val fcmToken = store.value.fcmToken
+            
+            val registrationData = org.thoughtcrime.securesms.registration.data.RegistrationData(
+              code, e164, password, org.thoughtcrime.securesms.registration.data.RegistrationRepository.getRegistrationId(),
+              org.thoughtcrime.securesms.registration.data.RegistrationRepository.getProfileKey(e164), fcmToken,
+              org.thoughtcrime.securesms.registration.data.RegistrationRepository.getPniRegistrationId(), null
+            )
+            
+            org.thoughtcrime.securesms.keyvalue.SignalStore.account.generateAciIdentityKeyIfNecessary()
+            org.thoughtcrime.securesms.keyvalue.SignalStore.account.generatePniIdentityKeyIfNecessary()
+            
+            val aciPreKeyCollection = org.thoughtcrime.securesms.registration.data.RegistrationRepository.generateSignedAndLastResortPreKeys(
+              org.thoughtcrime.securesms.keyvalue.SignalStore.account.aciIdentityKey,
+              org.thoughtcrime.securesms.keyvalue.SignalStore.account.aciPreKeys
+            )
+            
+            val pniPreKeyCollection = org.thoughtcrime.securesms.registration.data.RegistrationRepository.generateSignedAndLastResortPreKeys(
+              org.thoughtcrime.securesms.keyvalue.SignalStore.account.pniIdentityKey,
+              org.thoughtcrime.securesms.keyvalue.SignalStore.account.pniPreKeys
+            )
+            
+            val mockResult = org.thoughtcrime.securesms.registration.data.AccountRegistrationResult(
+              uuid = otpResponse.uuid,
+              pni = otpResponse.pni,
+              storageCapable = otpResponse.storageCapable,
+              number = registrationData.e164,
+              masterKey = null,
+              pin = null,
+              aciPreKeyCollection = aciPreKeyCollection,
+              pniPreKeyCollection = pniPreKeyCollection,
+              reRegistration = otpResponse.reRegistration
+            )
+            
+            val registerResult = org.thoughtcrime.securesms.registration.data.network.RegisterAccountResult.Success(mockResult)
+            
+            Log.i(TAG, "Project Parewa: Handling registerResult: ${registerResult.javaClass.simpleName}")
+            handleRegistrationResult(context, registrationData, registerResult, false)
           } catch (e: Exception) {
             Log.e(TAG, "Project Parewa: FATAL EXCEPTION during registration flow", e)
             setInProgress(false)
