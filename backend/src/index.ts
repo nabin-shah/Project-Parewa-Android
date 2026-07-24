@@ -294,7 +294,15 @@ app.post("/v1/verification/session", (_req: Request, res: Response) => {
 
 app.post("/v1/verification/session/:sessionId/code", (_req: Request, res: Response) => {
   console.log("[mock] Mock code request for session");
-  res.status(200).json({ status: "SUCCESS" });
+  res.status(200).json({
+    id: "parewa-mock-session-id",
+    nextSms: null,
+    nextCall: null,
+    nextVerificationAttempt: null,
+    allowedToRequestCode: true,
+    requestedInformation: [],
+    verified: false
+  });
 });
 
 // ---- 404 Catch-All ----------------------------------------------------------
