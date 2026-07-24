@@ -1125,15 +1125,15 @@ class RegistrationViewModel : ViewModel() {
 
     refreshRemoteConfig()
 
-    val checkpoint = if (
-      SignalStore.registration.restoreDecisionState.isDecisionPending &&
-      SignalStore.registration.restoreDecisionState.isWantingManualRemoteRestore &&
-      SignalStore.backup.lastBackupTime == 0L
-    ) {
-      RegistrationCheckpoint.BACKUP_TIMESTAMP_NOT_RESTORED
-    } else {
-      RegistrationCheckpoint.LOCAL_REGISTRATION_COMPLETE
-    }
+    // Parewa Project: Completely opt-out of KBS/PIN handling and skip backup restores.
+    Log.i(TAG, "Project Parewa: Bypassing KBS and forcing PIN opt-out.")
+    SignalStore.svr.optOut()
+    
+    // Parewa Project: Mark registration as fully complete so we don't get trapped by persistent banners
+    Log.i(TAG, "Project Parewa: Setting account.isRegistered = true to skip lingering system banners.")
+    SignalStore.account.isRegistered = true
+
+    val checkpoint = RegistrationCheckpoint.LOCAL_REGISTRATION_COMPLETE
 
     store.update {
       it.copy(

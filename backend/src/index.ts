@@ -334,6 +334,134 @@ app.get("/v1/certificate/delivery", (_req: Request, res: Response) => {
   });
 });
 
+// ==============================================================================
+// MOCK PHASE 2 ENDPOINTS (Post-Registration / Profiles / Directory)
+// ==============================================================================
+
+app.put("/v1/profile", (_req: Request, res: Response) => {
+  console.log("[mock] PUT /v1/profile - Profile update received");
+  res.status(200).json({ status: "SUCCESS" });
+});
+
+// Helper to get UUID from Basic Auth (or return a fallback for testing)
+function getUuidFromAuth(req: Request): string {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Basic ")) {
+    try {
+      const b64auth = authHeader.split(" ")[1];
+      const [uuid] = Buffer.from(b64auth, "base64").toString().split(":");
+      return uuid;
+    } catch (e) {
+      console.warn("Failed to parse Basic Auth header");
+    }
+  }
+  return "unknown-uuid";
+}
+
+app.put("/v2/keys", async (req: Request, res: Response) => {
+  try {
+    const uuid = getUuidFromAuth(req);
+    const deviceId = 1; // Default single-device deployment
+    const { identityKey, signedPreKey, preKeys } = req.body;
+
+    console.log(`[keys] PUT /v2/keys - Storing keys for ${uuid} (Device ${deviceId})`);
+
+    // Store main keys in a Redis Hash
+    const hashKey = `parewa:keys:${uuid}:${deviceId}`;
+    await redis.hset(hashKey, {
+      identityKey: typeof identityKey === 'string' ? identityKey : JSON.stringify(identityKey),
+      signedPreKey: JSON.stringify(signedPreKey),
+      registrationId: req.body.registrationId || 0
+    });
+
+    // Store one-time preKeys in a Redis List
+    const listKey = `parewa:prekeys:${uuid}:${deviceId}`;
+    
+    // Clear existing prekeys first
+    await redis.del(listKey);
+    
+    if (Array.isArray(preKeys) && preKeys.length > 0) {
+      const preKeyStrings = preKeys.map((pk: any) => JSON.stringify(pk));
+      await redis.rpush(listKey, ...preKeyStrings);
+      console.log(`[keys] Stored ${preKeys.length} one-time preKeys for ${uuid}`);
+    }
+
+    res.status(200).json({ status: "SUCCESS" });
+  } catch (error) {
+    console.error("[keys] Error storing keys:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/v2/keys/:identifier/:deviceId?", async (req: Request, res: Response) => {
+  try {
+    const identifier = req.params.identifier; // Target user's UUID
+    const deviceId = req.params.deviceId || 1;
+    
+    console.log(`[keys] GET /v2/keys - Fetching keys for ${identifier} (Device ${deviceId})`);
+
+    const hashKey = `parewa:keys:${identifier}:${deviceId}`;
+    const mainKeys = await redis.hgetall(hashKey);
+
+    if (!mainKeys || !mainKeys.identityKey) {
+      console.log(`[keys] Keys not found for ${identifier}`);
+      return res.status(404).json({ error: "Keys not found" });
+    }
+
+    const listKey = `parewa:prekeys:${identifier}:${deviceId}`;
+    const preKeyString = await redis.lpop(listKey); // Pop one prekey from the pool
+    const preKey = preKeyString ? JSON.parse(preKeyString) : null;
+
+    if (!preKey) {
+      console.warn(`[keys] WARNING: PreKey pool exhausted for ${identifier}!`);
+    }
+
+    const responsePayload = {
+      identityKey: mainKeys.identityKey.startsWith('{') ? JSON.parse(mainKeys.identityKey) : mainKeys.identityKey,
+      devices: [
+        {
+          deviceId: parseInt(deviceId.toString(), 10),
+          registrationId: parseInt(mainKeys.registrationId || "0", 10),
+          signedPreKey: JSON.parse(mainKeys.signedPreKey || "{}"),
+          preKey: preKey
+        }
+      ]
+    };
+
+    res.status(200).json(responsePayload);
+  } catch (error) {
+    console.error("[keys] Error fetching keys:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.put("/v1/accounts/attributes", (_req: Request, res: Response) => {
+  console.log("[mock] PUT /v1/accounts/attributes - Attributes updated");
+  res.status(200).json({ status: "SUCCESS" });
+});
+
+app.post("/v1/directory/tokens", (_req: Request, res: Response) => {
+  console.log("[mock] POST /v1/directory/tokens - Directory search mocked");
+  res.status(200).json({ results: [] }); // Return empty matches for now
+});
+
+app.get("/v1/accounts/username/:username", (req: Request, res: Response) => {
+  console.log(`[mock] GET /v1/accounts/username/${req.params.username}`);
+  res.status(200).json({
+    uuid: crypto.randomUUID(),
+    pni: crypto.randomUUID(),
+    username: req.params.username
+  });
+});
+
+app.get("/v1/profiles/:identifier", (req: Request, res: Response) => {
+  console.log(`[mock] GET /v1/profiles/${req.params.identifier}`);
+  res.status(200).json({
+    identityKey: "mock_identity_key",
+    version: "1"
+  });
+});
+
 // ---- 404 Catch-All ----------------------------------------------------------
 
 app.use((_req: Request, res: Response) => {
