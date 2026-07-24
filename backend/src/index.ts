@@ -306,15 +306,18 @@ app.post("/v1/verification/session/:sessionId/code", (_req: Request, res: Respon
 });
 
 // ==============================================================================
-// PUT /v1/accounts/attributes
+// POST /v1/registration
 // Mock endpoint to satisfy Signal client's registration provisioning.
 // ==============================================================================
 
-app.put("/v1/accounts/attributes", (_req: Request, res: Response) => {
-  console.log("[mock] Mock account attributes registration");
+app.post("/v1/registration", (_req: Request, res: Response) => {
+  console.log("[mock] Mock account registration");
   res.status(200).json({
-    uuid: "00000000-0000-0000-0000-000000000000",
-    pni: "00000000-0000-0000-0000-000000000001"
+    uuid: "11111111-2222-3333-4444-555555555555",
+    pni: "66666666-7777-8888-9999-aaaaaaaaaaaa",
+    storageCapable: false,
+    reregistration: false,
+    number: "+1234567890"
   });
 });
 
