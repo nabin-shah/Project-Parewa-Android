@@ -60,6 +60,7 @@ import kotlin.concurrent.withLock
 import kotlin.math.round
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import okio.ByteString.Companion.decodeBase64
 
 /**
  * The application-level manager of our incoming message processing.
@@ -505,11 +506,47 @@ class IncomingMessageObserver(
 
               if (messagesArray != null && messagesArray.length() > 0) {
                 Log.i(TAG, "Parewa: Received ${messagesArray.length()} offline message(s)!")
+                val batch = mutableListOf<EnvelopeResponse>()
+
                 for (i in 0 until messagesArray.length()) {
                   val msgObj = messagesArray.getJSONObject(i)
-                  Log.d(TAG, "Parewa: Processing message $i: ${msgObj.toString().take(200)}")
-                  // TODO: Parse Signal envelope proto and process through MessageDecryptor
-                  // For now, log the received message payload
+                  Log.d(TAG, "Parewa: Processing message $i")
+                  try {
+                    val envelopeBuilder = Envelope.Builder()
+
+                    if (msgObj.has("type")) envelopeBuilder.type(Envelope.Type.fromValue(msgObj.getInt("type")))
+                    if (msgObj.has("sourceServiceId")) envelopeBuilder.sourceServiceId(msgObj.getString("sourceServiceId"))
+                    if (msgObj.has("sourceDeviceId")) envelopeBuilder.sourceDeviceId(msgObj.getInt("sourceDeviceId"))
+                    if (msgObj.has("destinationServiceId")) envelopeBuilder.destinationServiceId(msgObj.getString("destinationServiceId"))
+                    if (msgObj.has("clientTimestamp")) envelopeBuilder.clientTimestamp(msgObj.getLong("clientTimestamp"))
+                    if (msgObj.has("content")) envelopeBuilder.content(msgObj.getString("content").let { it.decodeBase64() })
+                    if (msgObj.has("serverGuid")) envelopeBuilder.serverGuid(msgObj.getString("serverGuid"))
+                    if (msgObj.has("serverTimestamp")) envelopeBuilder.serverTimestamp(msgObj.getLong("serverTimestamp"))
+                    if (msgObj.has("ephemeral")) envelopeBuilder.ephemeral(msgObj.getBoolean("ephemeral"))
+                    if (msgObj.has("urgent")) envelopeBuilder.urgent(msgObj.getBoolean("urgent"))
+                    if (msgObj.has("updatedPni")) envelopeBuilder.updatedPni(msgObj.getString("updatedPni"))
+                    if (msgObj.has("story")) envelopeBuilder.story(msgObj.getBoolean("story"))
+                    if (msgObj.has("report_spam_token")) envelopeBuilder.report_spam_token(msgObj.getString("report_spam_token").let { it.decodeBase64() })
+                    if (msgObj.has("sourceServiceIdBinary")) envelopeBuilder.sourceServiceIdBinary(msgObj.getString("sourceServiceIdBinary").let { it.decodeBase64() })
+                    if (msgObj.has("destinationServiceIdBinary")) envelopeBuilder.destinationServiceIdBinary(msgObj.getString("destinationServiceIdBinary").let { it.decodeBase64() })
+                    if (msgObj.has("serverGuidBinary")) envelopeBuilder.serverGuidBinary(msgObj.getString("serverGuidBinary").let { it.decodeBase64() })
+                    if (msgObj.has("updatedPniBinary")) envelopeBuilder.updatedPniBinary(msgObj.getString("updatedPniBinary").let { it.decodeBase64() })
+
+                    val envelope = envelopeBuilder.build()
+                    val serverTimestamp = envelope.serverTimestamp ?: System.currentTimeMillis()
+                    val dummyRequest = org.signal.network.websocket.WebSocketRequestMessage.Builder().build()
+                    
+                    batch.add(EnvelopeResponse(envelope, serverTimestamp, dummyRequest))
+                  } catch (e: Exception) {
+                    Log.w(TAG, "Parewa: Failed to parse envelope JSON", e)
+                  }
+                }
+
+                if (batch.isNotEmpty()) {
+                  Log.i(TAG, "Parewa: Submitting batch of ${batch.size} messages to transaction processor")
+                  if (!processBatchInTransaction(batch)) {
+                    processMessagesIndividually(batch)
+                  }
                 }
               }
             } else {

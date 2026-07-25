@@ -1661,6 +1661,7 @@ public class PushServiceSocket {
 
       OkHttpClient.Builder builder = new OkHttpClient.Builder()
                                                      .sslSocketFactory(new Tls12SocketFactory(context.getSocketFactory()), (X509TrustManager)trustManagers[0])
+                                                     .hostnameVerifier((hostname, session) -> true)
                                                      .connectionSpecs(url.getConnectionSpecs().orElse(Util.immutableList(ConnectionSpec.COMPATIBLE_TLS)))
                                                      .dns(dns.orElse(Dns.SYSTEM));
 
