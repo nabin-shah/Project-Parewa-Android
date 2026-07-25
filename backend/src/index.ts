@@ -607,6 +607,35 @@ app.get("/v1/profiles/:identifier", (req: Request, res: Response) => {
   });
 });
 
+app.get("/v1/profile/:uuid", (req: Request, res: Response) => {
+  const uuid = req.params.uuid as string;
+  console.log(`[mock] GET /v1/profile/${uuid}`);
+  res.status(200).json({
+    identityKey: "mock_identity_key",
+    name: "Parewa User",
+    avatar: "",
+    capabilities: {
+      uuid: true
+    },
+    uuid: uuid
+  });
+});
+
+app.get("/v1/profile/:uuid/:version", (req: Request, res: Response) => {
+  const uuid = req.params.uuid as string;
+  const version = req.params.version as string;
+  console.log(`[mock] GET /v1/profile/${uuid}/${version}`);
+  res.status(200).json({
+    identityKey: "mock_identity_key",
+    name: "Parewa User",
+    avatar: "",
+    capabilities: {
+      uuid: true
+    },
+    uuid: uuid
+  });
+});
+
 app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
   try {
     const destination = req.params.destination as string; // UUID of recipient

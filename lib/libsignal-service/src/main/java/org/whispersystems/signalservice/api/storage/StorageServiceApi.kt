@@ -33,7 +33,7 @@ class StorageServiceApi(
   fun getAuth(): NetworkResult<String> {
     val request = WebSocketRequestMessage.get("/v1/storage/auth")
     return NetworkResult.fromWebSocketRequest(authWebSocket, request, StorageAuthResponse::class)
-      .map { Credentials.basic(it.username, it.password) }
+      .map { Credentials.basic(it.username ?: "", it.password ?: "") }
   }
 
   /**

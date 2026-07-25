@@ -284,13 +284,13 @@ class NetworkDependenciesModule(
 
   fun openConnections() {
     try {
-      authWebSocket.connect()
+      // authWebSocket.connect()
     } catch (e: WebSocketUnavailableException) {
       Log.w(TAG, "Not allowed to start auth websocket", e)
     }
 
     try {
-      unauthWebSocket.connect()
+      // unauthWebSocket.connect()
     } catch (e: WebSocketUnavailableException) {
       Log.w(TAG, "Not allowed to start unauth websocket", e)
     }
