@@ -665,6 +665,16 @@ app.get("/v1/messages", async (req: Request, res: Response) => {
   }
 });
 
+// ---- Dummy Endpoints (to prevent client 404 spam) ---------------------------
+
+app.get("/v2/config", (_req: Request, res: Response) => {
+  res.status(200).json({});
+});
+
+app.get("/v1/storage/auth", (_req: Request, res: Response) => {
+  res.status(200).json({});
+});
+
 // ---- 404 Catch-All ----------------------------------------------------------
 
 app.use((_req: Request, res: Response) => {

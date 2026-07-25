@@ -90,7 +90,11 @@ sealed class SignalWebSocket(
   @Synchronized
   @Throws(WebSocketUnavailableException::class)
   fun connect() {
-    getWebSocket()
+    // PAREWA: We are completely disabling WebSockets.
+    // Fake the CONNECTED state so that IncomingMessageObserver and the app lifecycle are happy.
+    if (_state.value != WebSocketConnectionState.CONNECTED) {
+      _state.onNext(WebSocketConnectionState.CONNECTED)
+    }
   }
 
   /**
@@ -248,7 +252,9 @@ sealed class SignalWebSocket(
 
   @Throws(IOException::class)
   fun sendAck(response: EnvelopeResponse) {
-    getWebSocket().sendResponse(response.websocketRequest.getWebSocketResponse())
+    // PAREWA: We no longer send acks via WebSocket since the backend removes messages
+    // immediately from Redis via HTTP polling (GET /v1/messages).
+    // getWebSocket().sendResponse(response.websocketRequest.getWebSocketResponse())
   }
 
   /**
@@ -270,13 +276,7 @@ sealed class SignalWebSocket(
 
   @Throws(WebSocketUnavailableException::class)
   protected fun getWebSocket(): WebSocketConnection {
-    if (!canConnect.canConnect()) {
-      throw WebSocketUnavailableException()
-    }
-
-    connection?.takeIf { !it.isDead() }?.let { return it }
-
-    return getOrCreateWebSocketLocked()
+    throw UnsupportedOperationException("PAREWA: Native WebSockets have been completely removed and disabled!")
   }
 
   @Synchronized
