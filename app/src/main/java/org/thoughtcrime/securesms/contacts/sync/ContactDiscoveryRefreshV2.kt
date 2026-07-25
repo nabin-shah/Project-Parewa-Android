@@ -48,9 +48,17 @@ object ContactDiscoveryRefreshV2 {
   @Synchronized
   @JvmStatic
   fun refreshAll(context: Context, timeoutMs: Long? = null): ContactDiscovery.RefreshResult {
-    // Project Parewa: Do not upload or read local device contacts for hash discovery.
-    Log.i(TAG, "Project Parewa: Bypassing local device contact directory upload.")
-    return ContactDiscovery.RefreshResult(emptySet(), emptyMap())
+    // Project Parewa: Sync local device contacts using our custom OkHttp implementation 
+    val recipientE164s: Set<String> = SignalDatabase.recipients.getAllE164s().sanitize()
+    val systemE164s: Set<String> = SystemContactsRepository.getAllDisplayNumbers(context).toE164s().sanitize()
+
+    return refreshInternal(
+      recipientE164s = recipientE164s,
+      systemE164s = systemE164s,
+      inputPreviousE164s = SignalDatabase.cds.getAllE164s(),
+      isPartialRefresh = false,
+      timeoutMs = timeoutMs
+    )
   }
 
   @Throws(IOException::class)

@@ -281,8 +281,9 @@ object UsernameRepository {
   @JvmStatic
   fun fetchAciForUsername(usernameString: String): UsernameAciFetchResult {
     try {
+      val encodedUsername = java.net.URLEncoder.encode(usernameString, "UTF-8")
       val request = okhttp3.Request.Builder()
-        .url(org.thoughtcrime.securesms.BuildConfig.SIGNAL_URL + "/v1/accounts/username/" + usernameString)
+        .url(org.thoughtcrime.securesms.BuildConfig.SIGNAL_URL + "/v1/accounts/username/" + encodedUsername)
         .get()
         .build()
         

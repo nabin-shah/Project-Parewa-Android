@@ -271,8 +271,17 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
     console.log(`[otp] Verified successfully for ${normalizedEmail}`);
 
     // 5. Return success and generate authoritative ACI/PNI
-    const uuid = crypto.randomUUID();
+    let uuid = await redis.get(`parewa:email:${normalizedEmail}`) || await redis.get(`parewa:phone:${normalizedEmail}`);
+    if (!uuid) {
+      uuid = crypto.randomUUID();
+    }
     const pni = crypto.randomUUID();
+    
+    // Store in all indexes
+    const userPayload = JSON.stringify({ uuid, pni, email: normalizedEmail, phone_number: normalizedEmail });
+    await redis.set(`parewa:user:${uuid}`, userPayload);
+    await redis.set(`parewa:email:${normalizedEmail}`, uuid);
+    await redis.set(`parewa:phone:${normalizedEmail}`, uuid);
 
     res.status(200).json({
       uuid: uuid,
@@ -461,12 +470,16 @@ app.post("/v1/directory/parewa", async (req: Request, res: Response) => {
     const results: Record<string, any> = {};
     
     for (const num of numbers) {
-      const uuid = await redis.hget("parewa:users", num);
+      const uuid = await redis.get(`parewa:phone:${num}`) || await redis.get(`parewa:email:${num}`);
       if (uuid) {
-        results[num] = {
-          uuid: uuid,
-          pni: crypto.randomUUID()
-        };
+        const userStr = await redis.get(`parewa:user:${uuid}`);
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          results[num] = {
+            uuid: user.uuid,
+            pni: user.pni
+          };
+        }
       }
     }
     res.status(200).json({ results });
@@ -477,35 +490,55 @@ app.post("/v1/directory/parewa", async (req: Request, res: Response) => {
 });
 
 app.get("/v1/accounts/username/:username", async (req: Request, res: Response) => {
-  // Decode URI component to perfectly handle URL-encoded emails (e.g. test%40example.com -> test@example.com)
-  const username = decodeURIComponent(req.params.username as string);
-  console.log(`[mock] GET /v1/accounts/username/${username}`);
-  // In our MVP, email = username
-  const uuid = await redis.hget("parewa:users", username);
-  if (uuid) {
-    res.status(200).json({
-      uuid: uuid,
-      pni: crypto.randomUUID(),
-      username: username
-    });
-  } else {
+  try {
+    // Decode URI component to perfectly handle URL-encoded emails (e.g. test%40example.com -> test@example.com)
+    const username = decodeURIComponent(req.params.username as string).toLowerCase();
+    console.log(`[directory] GET /v1/accounts/username/${username}`);
+    
+    const uuid = await redis.get(`parewa:email:${username}`) || await redis.get(`parewa:phone:${username}`);
+    if (uuid) {
+      const userStr = await redis.get(`parewa:user:${uuid}`);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        res.status(200).json({
+          uuid: user.uuid,
+          pni: user.pni,
+          number: user.phone_number,
+          email: user.email
+        });
+        return;
+      }
+    }
     res.status(404).json({ error: "User not found" });
+  } catch (err) {
+    console.error("[directory] Error fetching username:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 app.get("/v1/accounts/number/:number", async (req: Request, res: Response) => {
-  const number = req.params.number as string;
-  console.log(`[mock] GET /v1/accounts/number/${number}`);
-  // In our MVP, phone number maps to the same field
-  const uuid = await redis.hget("parewa:users", number);
-  if (uuid) {
-    res.status(200).json({
-      uuid: uuid,
-      pni: crypto.randomUUID(),
-      username: number
-    });
-  } else {
+  try {
+    const number = decodeURIComponent(req.params.number as string);
+    console.log(`[directory] GET /v1/accounts/number/${number}`);
+    
+    const uuid = await redis.get(`parewa:phone:${number}`) || await redis.get(`parewa:email:${number}`);
+    if (uuid) {
+      const userStr = await redis.get(`parewa:user:${uuid}`);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        res.status(200).json({
+          uuid: user.uuid,
+          pni: user.pni,
+          number: user.phone_number,
+          email: user.email
+        });
+        return;
+      }
+    }
     res.status(404).json({ error: "User not found" });
+  } catch (err) {
+    console.error("[directory] Error fetching number:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
