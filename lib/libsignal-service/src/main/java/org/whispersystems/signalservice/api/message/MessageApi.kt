@@ -94,7 +94,15 @@ class MessageApi(
       // Serialize messageList to send proper payload to the backend
       val payloadBody = org.signal.network.util.JsonUtil.toJson(messageList)
       val body = payloadBody.toRequestBody("application/json".toMediaType())
-      val request = Request.Builder().url(url).put(body).build()
+      val reqBuilder = Request.Builder().url(url).put(body)
+      
+      val uuid = System.getProperty("parewa_uuid") ?: ""
+      val password = System.getProperty("parewa_password") ?: ""
+      if (uuid.isNotEmpty()) {
+        val basicAuth = okhttp3.Credentials.basic(uuid, password)
+        reqBuilder.addHeader("Authorization", basicAuth)
+      }
+      val request = reqBuilder.build()
       
       client.newCall(request).execute().use { response ->
         if (response.isSuccessful) {
