@@ -131,7 +131,7 @@ class KeysApi(
       null
     }
 
-    val body = PreKeyState(signedPreKey, oneTimeEcPreKeys, lastResortKyberPreKey, oneTimeKyberPreKeys)
+    val body = PreKeyState(signedPreKey, oneTimeEcPreKeys, lastResortKyberPreKey, oneTimeKyberPreKeys, preKeyUpload.identityKey, preKeyUpload.registrationId)
 
     val request = WebSocketRequestMessage.put("/v2/keys?identity=${preKeyUpload.serviceIdType.queryParam()}", body)
     return NetworkResult.fromWebSocketRequest(authWebSocket, request)

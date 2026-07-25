@@ -418,6 +418,13 @@ function getUuidFromAuth(req: Request): string {
   return "unknown-uuid";
 }
 
+app.get("/v2/keys", async (req: Request, res: Response) => {
+  const uuid = getUuidFromAuth(req);
+  console.log(`[keys] GET /v2/keys - UUID: ${uuid} requesting key counts`);
+  // Returning 0 for both forces the client to upload a fresh batch of keys (PUT /v2/keys)
+  res.status(200).json({ count: 0, pqCount: 0 });
+});
+
 app.put("/v2/keys", async (req: Request, res: Response) => {
   try {
     const uuid = getUuidFromAuth(req);
@@ -454,6 +461,13 @@ app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
       preKey = parsedData.preKeys[0]; // just grab the first one
     }
 
+    let pqPreKey = undefined;
+    if (Array.isArray(parsedData.pqPreKeys) && parsedData.pqPreKeys.length > 0) {
+      pqPreKey = parsedData.pqPreKeys[0];
+    } else if (parsedData.pqLastResortPreKey) {
+      pqPreKey = parsedData.pqLastResortPreKey;
+    }
+
     const responsePayload = {
       identityKey: parsedData.identityKey,
       devices: [
@@ -462,8 +476,7 @@ app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
           registrationId: parsedData.registrationId,
           signedPreKey: parsedData.signedPreKey,
           preKey: preKey,
-          kyberPreKey: parsedData.kyberPreKey || parsedData.pqPreKey || undefined,
-          pqPreKey: parsedData.pqPreKey || parsedData.kyberPreKey || undefined
+          pqPreKey: pqPreKey
         }
       ]
     };

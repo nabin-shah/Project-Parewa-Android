@@ -24,18 +24,30 @@ public class PreKeyState {
   @JsonProperty("pqPreKeys")
   private List<KyberPreKeyEntity> oneTimeKyberKeys;
 
+  @JsonProperty("identityKey")
+  @JsonSerialize(using = JsonUtil.IdentityKeySerializer.class)
+  @JsonDeserialize(using = JsonUtil.IdentityKeyDeserializer.class)
+  private IdentityKey identityKey;
+
+  @JsonProperty("registrationId")
+  private int registrationId;
+
   public PreKeyState() {}
 
   public PreKeyState(
       SignedPreKeyEntity signedPreKey,
       List<PreKeyEntity> oneTimeEcPreKeys,
       KyberPreKeyEntity lastResortKyberPreKey,
-      List<KyberPreKeyEntity> oneTimeKyberPreKeys
+      List<KyberPreKeyEntity> oneTimeKyberPreKeys,
+      IdentityKey identityKey,
+      int registrationId
   ) {
     this.signedPreKey       = signedPreKey;
     this.oneTimeEcPreKeys   = oneTimeEcPreKeys;
     this.lastResortKyberKey = lastResortKyberPreKey;
     this.oneTimeKyberKeys   = oneTimeKyberPreKeys;
+    this.identityKey        = identityKey;
+    this.registrationId     = registrationId;
   }
 
   public List<PreKeyEntity> getPreKeys() {

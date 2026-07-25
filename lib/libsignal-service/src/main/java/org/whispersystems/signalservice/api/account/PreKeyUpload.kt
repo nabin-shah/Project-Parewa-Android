@@ -5,6 +5,7 @@
 
 package org.whispersystems.signalservice.api.account
 
+import org.signal.libsignal.protocol.IdentityKey
 import org.signal.libsignal.protocol.state.KyberPreKeyRecord
 import org.signal.libsignal.protocol.state.PreKeyRecord
 import org.signal.libsignal.protocol.state.SignedPreKeyRecord
@@ -20,5 +21,7 @@ data class PreKeyUpload(
   val signedPreKey: SignedPreKeyRecord?,
   val oneTimeEcPreKeys: List<PreKeyRecord>?,
   val lastResortKyberPreKey: KyberPreKeyRecord?,
-  val oneTimeKyberPreKeys: List<KyberPreKeyRecord>?
+  val oneTimeKyberPreKeys: List<KyberPreKeyRecord>?,
+  val identityKey: IdentityKey,
+  val registrationId: Int
 )

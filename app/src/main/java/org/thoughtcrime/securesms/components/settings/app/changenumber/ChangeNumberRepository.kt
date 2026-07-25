@@ -146,7 +146,9 @@ class ChangeNumberRepository(
           signedPreKey = signedPreKey,
           oneTimeEcPreKeys = oneTimeEcPreKeys,
           lastResortKyberPreKey = lastResortKyberPreKey,
-          oneTimeKyberPreKeys = oneTimeKyberPreKeys
+          oneTimeKyberPreKeys = oneTimeKyberPreKeys,
+          identityKey = pniIdentityKeyPair.publicKey,
+          registrationId = pniRegistrationId
         )
       )
     }.successOrThrow()

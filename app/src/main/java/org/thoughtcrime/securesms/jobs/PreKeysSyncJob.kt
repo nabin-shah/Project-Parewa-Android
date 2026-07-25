@@ -209,7 +209,9 @@ class PreKeysSyncJob private constructor(
           signedPreKey = signedPreKeyToUpload,
           oneTimeEcPreKeys = oneTimeEcPreKeysToUpload,
           lastResortKyberPreKey = lastResortKyberPreKeyToUpload,
-          oneTimeKyberPreKeys = oneTimeKyberPreKeysToUpload
+          oneTimeKyberPreKeys = oneTimeKyberPreKeysToUpload,
+          identityKey = protocolStore.identityKeyPair.publicKey,
+          registrationId = protocolStore.localRegistrationId
         )
       ).successOrThrow()
 
