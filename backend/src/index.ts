@@ -74,7 +74,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // ---- Health Check -----------------------------------------------------------
 
@@ -421,10 +421,11 @@ function getUuidFromAuth(req: Request): string {
 app.put("/v2/keys", async (req: Request, res: Response) => {
   try {
     const uuid = getUuidFromAuth(req);
-    console.log(`[keys] Stored keys for ${uuid}:`, JSON.stringify(req.body));
+    console.log(`[keys] PUT /v2/keys - Received keys for UUID: ${uuid}`);
 
     // Use a simple string key
     await redis.set(`parewa:keys:${uuid}`, JSON.stringify(req.body));
+    console.log(`[keys] Stored keys for ${uuid}:`, JSON.stringify(req.body));
 
     res.status(200).json({ status: "SUCCESS" });
   } catch (error) {
@@ -433,11 +434,12 @@ app.put("/v2/keys", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/v2/keys/:identifier/:deviceId?", async (req: Request, res: Response) => {
+app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
   try {
     const identifier = req.params.identifier as string; // Target user's UUID
     
     const rawKeys = await redis.get(`parewa:keys:${identifier}`);
+    console.log(`[keys] GET /v2/keys - Fetched keys for: ${identifier} ${rawKeys ? "FOUND" : "NULL"}`);
     console.log(`[keys] Retrieved raw keys from Redis:`, rawKeys);
 
     if (!rawKeys) {
