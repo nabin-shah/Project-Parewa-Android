@@ -7,11 +7,10 @@ import "dotenv/config";
 import cors from "cors";
 import Redis from "ioredis";
 import nodemailer from "nodemailer";
-import { WebSocketServer } from "ws";
 import crypto from "node:crypto";
 import http from "http";
 import express, { Request, Response, NextFunction } from "express";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocketServer, WebSocket, RawData } from "ws";
 
 // ---- Configuration ----------------------------------------------------------
 
@@ -74,7 +73,6 @@ function isValidEmail(email: unknown): email is string {
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
 
 // Store active WebSocket connections by UUID
 const activeConnections = new Map<string, WebSocket>();
@@ -677,7 +675,7 @@ app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
 
 // Start Express Server
 const port = process.env.PORT || 8080;
-const server = app.listen(port, () => {
+server.listen(port, () => {
   console.log(`============================================`);
   console.log(`  Project Parewa — Auth Service`);
   console.log(`  Listening on http://0.0.0.0:${port}`);
@@ -695,8 +693,9 @@ wss.on("connection", (ws, req) => {
   // Send a dummy empty JSON to satisfy initial connection if needed
   // Signal clients will just wait for pings and responses.
   
-  ws.on("message", (message) => {
-    console.log(`[websocket] Received data from client, length: ${message.length}`);
+  ws.on("message", (message: RawData) => {
+    const dataLen = Buffer.isBuffer(message) ? message.length : 0;
+    console.log(`[websocket] Received data from client, length: ${dataLen}`);
     // We intentionally ignore the complex Protobuf RPC protocol here, 
     // relying on the Android client's HTTP fallback to actually send messages!
   });
