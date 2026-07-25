@@ -641,12 +641,34 @@ app.get("/v1/accounts/number/:number", async (req: Request, res: Response) => {
   }
 });
 
-app.get(["/v1/profiles/:identifier", "/v1/profiles/:identifier/*"], (req: Request, res: Response) => {
+async function getIdentityKeyForUser(identifier: string): Promise<string> {
+  const rawKeys = await redis.get(`parewa:keys:${identifier}:aci`) || 
+                  await redis.get(`parewa:keys:${identifier}`) || 
+                  await redis.get(`parewa:keys:${identifier}:pni`);
+  if (rawKeys) {
+    try {
+      const parsed = JSON.parse(rawKeys);
+      if (parsed.identityKey) {
+        return parsed.identityKey;
+      }
+    } catch (e) {
+      console.error(`[profile] Error parsing keys for ${identifier}:`, e);
+    }
+  }
+  // Fallback to a valid 33-byte Curve25519 public key (starting with byte 0x05) in Base64
+  return "BQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+}
+
+app.get(["/v1/profiles/:identifier", "/v1/profiles/:identifier/*"], async (req: Request, res: Response) => {
   const identifier = req.params.identifier as string;
   console.log(`[mock] GET ${req.path} for identifier ${identifier}`);
+  const identityKey = await getIdentityKeyForUser(identifier);
   res.status(200).json({
-    identityKey: "mock_identity_key",
+    identityKey: identityKey,
     name: "Parewa User",
+    username: "",
+    about: "",
+    aboutEmoji: "",
     avatar: "",
     capabilities: {
       uuid: true
@@ -655,12 +677,16 @@ app.get(["/v1/profiles/:identifier", "/v1/profiles/:identifier/*"], (req: Reques
   });
 });
 
-app.get(["/v1/profile/:uuid", "/v1/profile/:uuid/*"], (req: Request, res: Response) => {
+app.get(["/v1/profile/:uuid", "/v1/profile/:uuid/*"], async (req: Request, res: Response) => {
   const uuid = req.params.uuid as string;
   console.log(`[mock] GET ${req.path} for uuid ${uuid}`);
+  const identityKey = await getIdentityKeyForUser(uuid);
   res.status(200).json({
-    identityKey: "mock_identity_key",
+    identityKey: identityKey,
     name: "Parewa User",
+    username: "",
+    about: "",
+    aboutEmoji: "",
     avatar: "",
     capabilities: {
       uuid: true
