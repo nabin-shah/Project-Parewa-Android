@@ -491,25 +491,7 @@ app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
     }
 
     const parsedData = JSON.parse(rawKeys);
-
-    // Pick one-time EC prekey (pop from list if available)
-    let preKey = undefined;
-    if (Array.isArray(parsedData.preKeys) && parsedData.preKeys.length > 0) {
-      preKey = parsedData.preKeys[0];
-    }
-
-    // Pick PQ prekey: one-time first, then last-resort
-    let pqPreKey = undefined;
-    if (Array.isArray(parsedData.pqPreKeys) && parsedData.pqPreKeys.length > 0) {
-      pqPreKey = parsedData.pqPreKeys[0];
-    } else if (parsedData.pqLastResortPreKey) {
-      pqPreKey = parsedData.pqLastResortPreKey;
-    }
-
-    if (!parsedData.signedPreKey) {
-      console.log(`[keys] WARNING: No signedPreKey for ${identifier}`);
-      return res.status(404).json({ error: "Incomplete keys — no signedPreKey" });
-    }
+    console.log("[keys] Parsed Key Payload Fields:", Object.keys(parsedData));
 
     const responsePayload = {
       identityKey: parsedData.identityKey,
@@ -517,14 +499,15 @@ app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
         {
           deviceId: 1,
           registrationId: parsedData.registrationId,
-          signedPreKey: parsedData.signedPreKey,
-          preKey: preKey,
-          pqPreKey: pqPreKey
+          signedPreKey: parsedData.signedPreKey, // Pass whatever exists
+          preKey: (parsedData.preKeys && parsedData.preKeys.length > 0) ? parsedData.preKeys[0] : undefined,
+          kyberPreKey: (parsedData.kyberPreKeys && parsedData.kyberPreKeys.length > 0) ? parsedData.kyberPreKeys[0] : parsedData.kyberPreKey,
+          pqPreKey: (parsedData.pqPreKeys && parsedData.pqPreKeys.length > 0) ? parsedData.pqPreKeys[0] : parsedData.pqPreKey
         }
       ]
     };
 
-    console.log(`[keys] Returning keys for ${identifier}: hasPreKey=${!!preKey}, hasPqPreKey=${!!pqPreKey}`);
+    console.log(`[keys] Returning keys for ${identifier}: hasPreKey=${!!responsePayload.devices[0].preKey}, hasPqPreKey=${!!responsePayload.devices[0].pqPreKey}, hasSignedPreKey=${!!responsePayload.devices[0].signedPreKey}`);
     res.status(200).json(responsePayload);
   } catch (error) {
     console.error("[keys] Error fetching keys:", error);
