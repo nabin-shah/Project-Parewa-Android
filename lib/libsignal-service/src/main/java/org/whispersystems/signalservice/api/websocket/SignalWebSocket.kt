@@ -220,8 +220,12 @@ sealed class SignalWebSocket(
     
     for (header in request.headers) {
       val split = header.split(":", limit = 2)
-      if (split.size == 2 && split[0].trim().lowercase() != "authorization") {
-        reqBuilder.addHeader(split[0].trim(), split[1].trim())
+      if (split.size == 2) {
+        val headerName = split[0].trim()
+        if (headerName.lowercase() == "authorization" && uuid.isNotEmpty()) {
+          continue
+        }
+        reqBuilder.addHeader(headerName, split[1].trim())
       }
     }
     

@@ -203,17 +203,31 @@ class AccountValues internal constructor(store: KeyValueStore, context: Context)
 
   val restoredAccountEntropyPoolFromPrimary by booleanValue(KEY_RESTORED_ACCOUNT_ENTROPY_KEY_FROM_PRIMARY, false)
 
+  private fun updateParewaSystemProps() {
+    try {
+      getString(KEY_ACI, null)?.let { System.setProperty("parewa_uuid", it) }
+      getString(KEY_SERVICE_PASSWORD, null)?.let { System.setProperty("parewa_password", it) }
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to set parewa system props", e)
+    }
+  }
+
   /** The local user's [ACI]. */
   val aci: ACI?
-    get() = ACI.parseOrNull(getString(KEY_ACI, null))
+    get() {
+      updateParewaSystemProps()
+      return ACI.parseOrNull(getString(KEY_ACI, null))
+    }
 
   /** The local user's [ACI]. Will throw if not present. */
   fun requireAci(): ACI {
+    updateParewaSystemProps()
     return ACI.parseOrThrow(getString(KEY_ACI, null))
   }
 
   fun setAci(aci: ACI) {
     putString(KEY_ACI, aci.toString())
+    updateParewaSystemProps()
     RegisteredConstraint.Observer.notifyListeners()
   }
 
@@ -250,10 +264,14 @@ class AccountValues internal constructor(store: KeyValueStore, context: Context)
 
   /** The password for communicating with the Signal service. */
   val servicePassword: String?
-    get() = getString(KEY_SERVICE_PASSWORD, null)
+    get() {
+      updateParewaSystemProps()
+      return getString(KEY_SERVICE_PASSWORD, null)
+    }
 
   fun setServicePassword(servicePassword: String) {
     putString(KEY_SERVICE_PASSWORD, servicePassword)
+    updateParewaSystemProps()
   }
 
   /** A randomly-generated value that represents this registration instance. Helps the server know if you reinstalled. */
@@ -446,9 +464,13 @@ class AccountValues internal constructor(store: KeyValueStore, context: Context)
 
   /** Whether or not the user is registered with the Signal service. */
   val isRegistered: Boolean
-    get() = getBoolean(KEY_IS_REGISTERED, false)
+    get() {
+      updateParewaSystemProps()
+      return getBoolean(KEY_IS_REGISTERED, false)
+    }
 
   fun setRegistered(registered: Boolean, isAciChanged: Boolean = false) {
+    updateParewaSystemProps()
     Log.i(TAG, "Setting push registered: $registered", Throwable())
 
     val previous = isRegistered

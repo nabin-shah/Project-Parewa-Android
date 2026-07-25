@@ -694,7 +694,15 @@ public class ApplicationDependencyProvider implements AppDependencies.Provider {
 
     @Override
     public ACI getAci() {
-      return SignalStore.account().getAci();
+      ACI aci = SignalStore.account().getAci();
+      if (aci != null) {
+        System.setProperty("parewa_uuid", aci.toString());
+      }
+      String password = SignalStore.account().getServicePassword();
+      if (password != null) {
+        System.setProperty("parewa_password", password);
+      }
+      return aci;
     }
 
     @Override
