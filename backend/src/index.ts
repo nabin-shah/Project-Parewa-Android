@@ -421,40 +421,10 @@ function getUuidFromAuth(req: Request): string {
 app.put("/v2/keys", async (req: Request, res: Response) => {
   try {
     const uuid = getUuidFromAuth(req);
-    const deviceId = 1; // Default single-device deployment
-    const { identityKey, signedPreKey, preKeys, pqPreKey, pqLastResortPreKey, kyberPreKey } = req.body;
+    console.log(`[keys] Stored keys for ${uuid}:`, JSON.stringify(req.body));
 
-    console.log(`[keys] PUT /v2/keys - Storing keys for ${uuid} (Device ${deviceId})`);
-
-    // Store main keys in a Redis Hash
-    const hashKey = `parewa:keys:${uuid}:${deviceId}`;
-    
-    const hashData: any = {
-      identityKey: typeof identityKey === 'string' ? identityKey : JSON.stringify(identityKey),
-      signedPreKey: JSON.stringify(signedPreKey),
-      registrationId: req.body.registrationId || 0
-    };
-
-    if (pqPreKey || kyberPreKey) {
-        hashData.kyberPreKey = JSON.stringify(pqPreKey || kyberPreKey);
-    }
-    if (pqLastResortPreKey) {
-        hashData.pqLastResortPreKey = JSON.stringify(pqLastResortPreKey);
-    }
-
-    await redis.hset(hashKey, hashData);
-
-    // Store one-time preKeys in a Redis List
-    const listKey = `parewa:prekeys:${uuid}:${deviceId}`;
-    
-    // Clear existing prekeys first
-    await redis.del(listKey);
-    
-    if (Array.isArray(preKeys) && preKeys.length > 0) {
-      const preKeyStrings = preKeys.map((pk: any) => JSON.stringify(pk));
-      await redis.rpush(listKey, ...preKeyStrings);
-      console.log(`[keys] Stored ${preKeys.length} one-time preKeys for ${uuid}`);
-    }
+    // Use a simple string key
+    await redis.set(`parewa:keys:${uuid}`, JSON.stringify(req.body));
 
     res.status(200).json({ status: "SUCCESS" });
   } catch (error) {
@@ -466,40 +436,32 @@ app.put("/v2/keys", async (req: Request, res: Response) => {
 app.get("/v2/keys/:identifier/:deviceId?", async (req: Request, res: Response) => {
   try {
     const identifier = req.params.identifier as string; // Target user's UUID
-    let deviceId: string | number = req.params.deviceId as string;
     
-    if (!deviceId || deviceId === '*') {
-      deviceId = 1;
-    }
-    
-    console.log(`[keys] GET /v2/keys - Fetching keys for ${identifier} (Device ${deviceId})`);
+    const rawKeys = await redis.get(`parewa:keys:${identifier}`);
+    console.log(`[keys] Retrieved raw keys from Redis:`, rawKeys);
 
-    const hashKey = `parewa:keys:${identifier}:${deviceId}`;
-    const mainKeys = await redis.hgetall(hashKey);
-
-    if (!mainKeys || !mainKeys.identityKey) {
+    if (!rawKeys) {
       console.log(`[keys] Keys not found for ${identifier}`);
       return res.status(404).json({ error: "Keys not found" });
     }
 
-    const listKey = `parewa:prekeys:${identifier}:${deviceId}`;
-    const preKeyString = await redis.lpop(listKey); // Pop one prekey from the pool
-    const preKey = preKeyString ? JSON.parse(preKeyString) : null;
+    const parsedData = JSON.parse(rawKeys);
 
-    if (!preKey) {
-      console.warn(`[keys] WARNING: PreKey pool exhausted for ${identifier}!`);
+    let preKey = parsedData.preKey;
+    if (!preKey && Array.isArray(parsedData.preKeys) && parsedData.preKeys.length > 0) {
+      preKey = parsedData.preKeys[0]; // just grab the first one
     }
 
     const responsePayload = {
-      identityKey: mainKeys.identityKey.startsWith('{') ? JSON.parse(mainKeys.identityKey) : mainKeys.identityKey,
+      identityKey: parsedData.identityKey,
       devices: [
         {
-          deviceId: parseInt(deviceId.toString(), 10),
-          registrationId: parseInt(mainKeys.registrationId || "0", 10),
-          signedPreKey: JSON.parse(mainKeys.signedPreKey || "{}"),
+          deviceId: 1,
+          registrationId: parsedData.registrationId,
+          signedPreKey: parsedData.signedPreKey,
           preKey: preKey,
-          pqPreKey: mainKeys.kyberPreKey ? JSON.parse(mainKeys.kyberPreKey) : undefined,
-          pqLastResortPreKey: mainKeys.pqLastResortPreKey ? JSON.parse(mainKeys.pqLastResortPreKey) : undefined
+          kyberPreKey: parsedData.kyberPreKey || parsedData.pqPreKey || undefined,
+          pqPreKey: parsedData.pqPreKey || parsedData.kyberPreKey || undefined
         }
       ]
     };
