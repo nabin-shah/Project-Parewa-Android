@@ -254,7 +254,9 @@ class RegistrationViewModel : ViewModel() {
     }
 
     viewModelScope.launch(context = coroutineExceptionHandler) {
-      val result = ParewaRegistrationApi.verifyOtp(email, code)
+      // Extract the real phone number to send to backend for contact discovery
+      val phoneNumber = store.value.phoneNumber?.toE164()
+      val result = ParewaRegistrationApi.verifyOtp(email, code, phoneNumber)
 
       result.onSuccess { otpResponse ->
         Log.i(TAG, "Parewa OTP verification successful. Received ACI: ${otpResponse.uuid}")

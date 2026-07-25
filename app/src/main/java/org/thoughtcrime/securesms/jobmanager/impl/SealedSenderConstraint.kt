@@ -25,7 +25,9 @@ object SealedSenderConstraint : Constraint {
 
   private val valid = AtomicBoolean(false)
 
-  override fun isMet(): Boolean = valid.get()
+  // Parewa MVP: Always met — our server can't issue sealed sender certificates,
+  // so this would never become valid through the normal RotateCertificateJob flow.
+  override fun isMet(): Boolean = true
 
   override fun getFactoryKey(): String = KEY
 

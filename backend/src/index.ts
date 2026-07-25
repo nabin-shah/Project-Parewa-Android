@@ -10,7 +10,6 @@ import nodemailer from "nodemailer";
 import crypto from "node:crypto";
 import http from "http";
 import express, { Request, Response, NextFunction } from "express";
-import { WebSocketServer, WebSocket, RawData } from "ws";
 
 // ---- Configuration ----------------------------------------------------------
 
@@ -73,9 +72,6 @@ function isValidEmail(email: unknown): email is string {
 
 const app = express();
 const server = http.createServer(app);
-
-// Store active WebSocket connections by UUID
-const activeConnections = new Map<string, WebSocket>();
 
 app.use(cors());
 app.use(express.json());
@@ -269,25 +265,52 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
 
     console.log(`[otp] Verified successfully for ${normalizedEmail}`);
 
-    // 5. Return success and generate authoritative ACI/PNI
-    let uuid = await redis.get(`parewa:email:${normalizedEmail}`) || await redis.get(`parewa:phone:${normalizedEmail}`);
-    if (!uuid) {
+    // 5. Return success — check if user already exists (PNI persistence)
+    const phoneNumber = req.body.phone_number || null;
+    let uuid = await redis.get(`parewa:email:${normalizedEmail}`);
+    let pni: string;
+    let isReRegistration = false;
+
+    if (uuid) {
+      // Returning user — reuse existing UUID and PNI
+      const existingUserStr = await redis.get(`parewa:user:${uuid}`);
+      if (existingUserStr) {
+        const existingUser = JSON.parse(existingUserStr);
+        pni = existingUser.pni || crypto.randomUUID();
+        isReRegistration = true;
+        console.log(`[otp] Returning user detected: ${normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
+      } else {
+        pni = crypto.randomUUID();
+      }
+    } else {
+      // Brand new user — generate fresh UUID and PNI
       uuid = crypto.randomUUID();
+      pni = crypto.randomUUID();
+      console.log(`[otp] New user created: ${normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
     }
-    const pni = crypto.randomUUID();
-    
-    // Store in all indexes
-    const userPayload = JSON.stringify({ uuid, pni, email: normalizedEmail, phone_number: normalizedEmail });
+
+    // Store/update in all indexes
+    const userPayload = JSON.stringify({
+      uuid,
+      pni,
+      email: normalizedEmail,
+      phone_number: phoneNumber || normalizedEmail
+    });
     await redis.set(`parewa:user:${uuid}`, userPayload);
     await redis.set(`parewa:email:${normalizedEmail}`, uuid);
-    await redis.set(`parewa:phone:${normalizedEmail}`, uuid);
+
+    // If a real phone number was provided, index it too for contact discovery
+    if (phoneNumber && phoneNumber !== normalizedEmail) {
+      await redis.set(`parewa:phone:${phoneNumber}`, uuid);
+      console.log(`[otp] Phone number indexed: ${phoneNumber} → ${uuid}`);
+    }
 
     res.status(200).json({
       uuid: uuid,
       pni: pni,
       storageCapable: false,
-      reRegistration: false,
-      number: normalizedEmail
+      reRegistration: isReRegistration,
+      number: phoneNumber || normalizedEmail
     });
   } catch (err) {
     console.error("[otp] Unexpected error in /v1/accounts/code:", err);
@@ -550,85 +573,18 @@ app.get("/v1/profiles/:identifier", (req: Request, res: Response) => {
   });
 });
 
-// ---- 404 Catch-All ----------------------------------------------------------
-
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ error: "Not found" });
-});
-
-// ---- Global Error Handler ---------------------------------------------------
-
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[server] Unhandled error:", err);
-  res.status(500).json({ error: "Internal server error" });
-});
-
-// ---- WebSocket Upgrade & Logic ----------------------------------------------
-
-server.on("upgrade", (request, socket, head) => {
-  let authHeader = request.headers.authorization;
-  if (Array.isArray(authHeader)) authHeader = authHeader[0];
-
-  if (!authHeader || !authHeader.startsWith("Basic ")) {
-    console.log("[WS] Rejecting connection: Missing Basic Auth");
-    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-    socket.destroy();
-    return;
-  }
-
-  try {
-    const b64auth = authHeader.split(" ")[1];
-    const [uuid] = Buffer.from(b64auth, "base64").toString().split(":");
-    
-    wss.handleUpgrade(request, socket, head, async (ws) => {
-      console.log(`[WS] Connection established for UUID: ${uuid}`);
-      activeConnections.set(uuid, ws);
-
-      // Ping/Pong keepalive
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.ping();
-      }, 30000);
-
-      // Flush offline messages
-      const offlineMessages = await redis.lrange(`parewa:messages:${uuid}`, 0, -1);
-      if (offlineMessages.length > 0) {
-        console.log(`[WS] Flushing ${offlineMessages.length} offline messages to ${uuid}`);
-        for (const msg of offlineMessages) {
-          ws.send(msg);
-        }
-        await redis.del(`parewa:messages:${uuid}`);
-      }
-
-      ws.on("close", () => {
-        console.log(`[WS] Connection closed for UUID: ${uuid}`);
-        activeConnections.delete(uuid);
-        clearInterval(pingInterval);
-      });
-    });
-  } catch (e) {
-    socket.destroy();
-  }
-});
-
 app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
   try {
     const destination = req.params.destination as string; // UUID of recipient
-    console.log(`[messages] PUT /v1/messages/${destination} - Routing message...`);
+    console.log(`[messages] PUT /v1/messages/${destination} - Routing message via HTTP fallback...`);
 
-    const payload = JSON.stringify(req.body);
-    const ws = activeConnections.get(destination);
+    const payload = JSON.stringify(req.body || {});
+    
+    // Offline: push to Redis queue
+    await redis.rpush(`parewa:messages:${destination}`, payload);
+    console.log(`[messages] Stored offline for ${destination}`);
 
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      // Send directly over WebSocket
-      ws.send(payload);
-      console.log(`[messages] Routed directly via WebSocket to ${destination}`);
-    } else {
-      // Offline: push to Redis queue
-      await redis.rpush(`parewa:messages:${destination}`, payload);
-      console.log(`[messages] Stored offline for ${destination}`);
-    }
-
-    res.status(200).json({ status: "SUCCESS" });
+    res.status(200).json({ needsSync: false, status: "SUCCESS" });
   } catch (error) {
     console.error("[messages] Error routing message:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -655,22 +611,17 @@ app.get("/v1/messages", async (req: Request, res: Response) => {
   }
 });
 
-app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
-  try {
-    const destination = req.params.destination as string;
-    console.log(`[messages] PUT /v1/messages/${destination} - Routing message via HTTP fallback...`);
-    
-    // In Parewa MVP, we just store it in the destination's offline queue
-    // We expect the payload to contain the message bytes (or JSON)
-    const payload = JSON.stringify(req.body || {});
-    await redis.rpush(`parewa:messages:${destination}`, payload);
-    console.log(`[messages] Stored offline for ${destination}`);
-    
-    res.status(200).json({ needsSync: false });
-  } catch (error) {
-    console.error("[messages] Error routing message:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
+// ---- 404 Catch-All ----------------------------------------------------------
+
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// ---- Global Error Handler ---------------------------------------------------
+
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("[server] Unhandled error:", err);
+  res.status(500).json({ error: "Internal server error" });
 });
 
 // Start Express Server
@@ -682,29 +633,4 @@ server.listen(port, () => {
   console.log(`  Redis: redis://${process.env.REDIS_HOST}:6379`);
   console.log(`  SMTP:  ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}`);
   console.log(`============================================`);
-});
-
-// Start WebSocket Server (Dummy MVP Implementation)
-const wss = new WebSocketServer({ server });
-
-wss.on("connection", (ws, req) => {
-  console.log(`[websocket] Client connected to ${req.url}`);
-  
-  // Send a dummy empty JSON to satisfy initial connection if needed
-  // Signal clients will just wait for pings and responses.
-  
-  ws.on("message", (message: RawData) => {
-    const dataLen = Buffer.isBuffer(message) ? message.length : 0;
-    console.log(`[websocket] Received data from client, length: ${dataLen}`);
-    // We intentionally ignore the complex Protobuf RPC protocol here, 
-    // relying on the Android client's HTTP fallback to actually send messages!
-  });
-
-  ws.on("close", () => {
-    console.log(`[websocket] Client disconnected`);
-  });
-  
-  ws.on("error", (err) => {
-    console.error(`[websocket] Error:`, err);
-  });
 });

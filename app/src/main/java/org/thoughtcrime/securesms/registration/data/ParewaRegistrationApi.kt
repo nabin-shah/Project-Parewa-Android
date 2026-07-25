@@ -91,13 +91,17 @@ object ParewaRegistrationApi {
 
   /**
    * Verify the OTP code for the given email address.
-   * Calls POST /v1/accounts/code with {"email": "...", "otp": "..."}
+   * Calls POST /v1/accounts/code with {"email": "...", "code": "...", "phone_number": "..."}
+   * The phone_number is optional — if provided, the backend will index it for contact discovery.
    */
-  suspend fun verifyOtp(email: String, code: String): Result<ParewaOtpResponse> = withContext(Dispatchers.IO) {
+  suspend fun verifyOtp(email: String, code: String, phoneNumber: String? = null): Result<ParewaOtpResponse> = withContext(Dispatchers.IO) {
     try {
       val jsonBody = JSONObject().apply {
         put("email", email)
         put("code", code)
+        if (phoneNumber != null) {
+          put("phone_number", phoneNumber)
+        }
       }.toString()
 
       val request = Request.Builder()
@@ -106,7 +110,7 @@ object ParewaRegistrationApi {
         .addHeader("Content-Type", "application/json")
         .build()
 
-      Log.d(TAG, "Verifying OTP for email: $email")
+      Log.d(TAG, "Verifying OTP for email: $email, phone: ${phoneNumber ?: "not provided"}")
       val response = httpClient.newCall(request).execute()
 
       if (response.isSuccessful) {

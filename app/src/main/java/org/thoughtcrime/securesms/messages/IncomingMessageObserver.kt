@@ -439,111 +439,104 @@ class IncomingMessageObserver(
     }
 
     override fun run() {
-      var attempts = 0
+      // Parewa MVP: HTTP Polling instead of Signal's WebSocket infrastructure.
+      // We poll GET /v1/messages every 4 seconds when the app is foregrounded.
+      // Messages are stored in Redis by PUT /v1/messages/:dest and fetched here.
+      Log.i(TAG, "Parewa MVP: Starting HTTP polling loop for message retrieval.")
+
+      decryptionDrained = true
+      for (listener in decryptionDrainedListeners.toList()) {
+        listener.run()
+      }
+
+      val pollIntervalMs = 4000L
+      val baseUrl = "https://192.168.178.200"
+
+      // Build a trust-all OkHttpClient for self-signed certs
+      val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+      })
+      val sslContext = javax.net.ssl.SSLContext.getInstance("SSL")
+      sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+
+      val pollClient = okhttp3.OkHttpClient.Builder()
+        .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
+        .hostnameVerifier { _, _ -> true }
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
 
       while (!terminated) {
-        Log.i(TAG, "Waiting for websocket state change....")
-        if (attempts > 1) {
-          val backoff = BackoffUtil.exponentialBackoff(attempts, TimeUnit.SECONDS.toMillis(30))
-          Log.w(TAG, "Too many failed connection attempts,  attempts: $attempts backing off: $backoff")
-          sleepTimer.sleep(backoff)
-        }
-
-        waitForConnectionNecessary()
-        Log.i(TAG, "Making websocket connection....")
-
-        val webSocketDisposable = authWebSocket.state.subscribe { state: WebSocketConnectionState ->
-          Log.d(TAG, "WebSocket State: $state")
-
-          // Any change to a non-connected state means that we are not drained
-          if (state != WebSocketConnectionState.CONNECTED) {
-            decryptionDrained = false
+        try {
+          // Only poll when we should be connected (registered + foreground or within background window)
+          if (!isConnectionNecessary()) {
+            Log.d(TAG, "Parewa: Connection not necessary, sleeping...")
+            Thread.sleep(pollIntervalMs * 2)
+            continue
           }
 
-          if (state == WebSocketConnectionState.CONNECTED) {
-            SignalStore.misc.lastWebSocketConnectTime = System.currentTimeMillis()
+          val aci = SignalStore.account.aci?.toString()
+          val password = SignalStore.account.servicePassword
+          if (aci == null || password == null) {
+            Log.w(TAG, "Parewa: No ACI or service password set, skipping poll cycle.")
+            Thread.sleep(pollIntervalMs)
+            continue
           }
+
+          // Build Basic Auth header: base64("uuid:password")
+          val credentials = android.util.Base64.encodeToString(
+            "$aci:$password".toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP
+          )
+
+          val request = okhttp3.Request.Builder()
+            .url("$baseUrl/v1/messages")
+            .get()
+            .addHeader("Authorization", "Basic $credentials")
+            .build()
+
+          pollClient.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+              val body = response.body?.string() ?: "{}"
+              val json = org.json.JSONObject(body)
+              val messagesArray = json.optJSONArray("messages")
+
+              if (messagesArray != null && messagesArray.length() > 0) {
+                Log.i(TAG, "Parewa: Received ${messagesArray.length()} offline message(s)!")
+                for (i in 0 until messagesArray.length()) {
+                  val msgObj = messagesArray.getJSONObject(i)
+                  Log.d(TAG, "Parewa: Processing message $i: ${msgObj.toString().take(200)}")
+                  // TODO: Parse Signal envelope proto and process through MessageDecryptor
+                  // For now, log the received message payload
+                }
+              }
+            } else {
+              Log.w(TAG, "Parewa: Poll GET /v1/messages failed with HTTP ${response.code}")
+            }
+          }
+        } catch (e: InterruptedException) {
+          Log.w(TAG, "Parewa: Polling thread interrupted.", e)
+          break
+        } catch (e: Exception) {
+          Log.w(TAG, "Parewa: Error during message poll cycle.", e)
         }
 
         try {
-          authWebSocket.connect()
-          var isConnectionNecessary = false
-          while (!terminated && (isConnectionNecessary().also { isConnectionNecessary = it } || isConnectionAvailable())) {
-            if (isConnectionNecessary) {
-              authWebSocket.registerKeepAliveToken(WEB_SOCKET_KEEP_ALIVE_TOKEN)
-            } else {
-              authWebSocket.removeKeepAliveToken(WEB_SOCKET_KEEP_ALIVE_TOKEN)
-            }
-
-            try {
-              if (canProcessMessages) {
-                Log.d(TAG, "Reading message...")
-
-                val hasMore = authWebSocket.readMessageBatch(websocketReadTimeout, 30) { batch ->
-                  Log.i(TAG, "Retrieved ${batch.size} envelopes!")
-
-                  val startTime = System.currentTimeMillis()
-                  GroupsV2ProcessingLock.acquireGroupProcessingLock().use {
-                    ReentrantSessionLock.INSTANCE.acquire().use {
-                      val batchCommitted = processBatchInTransaction(batch)
-
-                      if (!batchCommitted) {
-                        Log.w(TAG, "Batch transaction rolled back, falling back to per-message processing")
-                        processMessagesIndividually(batch)
-                      }
-                    }
-                  }
-                  val duration = System.currentTimeMillis() - startTime
-                  val timePerMessage: Float = duration / batch.size.toFloat()
-                  Log.d(TAG, "Decrypted ${batch.size} envelopes in $duration ms (~${round(timePerMessage * 100) / 100} ms per message)")
-                }
-                attempts = 0
-                SignalLocalMetrics.PushWebsocketFetch.onProcessedBatch()
-
-                if (!hasMore && !decryptionDrained) {
-                  if (Environment.IS_BENCHMARK) {
-                    SignalTrace.endSection()
-                  }
-                  Log.i(TAG, "Decryptions newly-drained.")
-                  decryptionDrained = true
-
-                  for (listener in decryptionDrainedListeners.toList()) {
-                    listener.run()
-                  }
-                } else if (!hasMore) {
-                  Log.w(TAG, "Got tombstone, but we thought the network was already drained!")
-                }
-              } else {
-                Log.d(TAG, "Reading and dropping message...")
-                authWebSocket.readMessageBatch(websocketReadTimeout, 30) { batch ->
-                  Log.w(TAG, "Retrieved ${batch.size} envelopes but dropping until we can finish backup restore.")
-                }
-                attempts = 0
-              }
-            } catch (e: WebSocketUnavailableException) {
-              Log.i(TAG, "Pipe unexpectedly unavailable, connecting")
-              authWebSocket.connect()
-            } catch (e: TimeoutException) {
-              Log.w(TAG, "Application level read timeout...")
-              attempts = 0
-            }
-          }
-
-          if (!appVisible) {
-            BackgroundService.stop(context)
-          }
-        } catch (e: Throwable) {
-          attempts++
-          Log.w(TAG, e)
-        } finally {
-          Log.w(TAG, "Disconnecting auth websocket")
-          authWebSocket.disconnect()
-          webSocketDisposable.dispose()
-          decryptionDrained = false
+          Thread.sleep(pollIntervalMs)
+        } catch (e: InterruptedException) {
+          Log.w(TAG, "Parewa: Sleep interrupted.", e)
+          break
         }
-        Log.i(TAG, "Looping...")
       }
-      Log.w(TAG, "Terminated! (${this.hashCode()})")
+
+      // Cleanup when loop exits
+      if (!appVisible) {
+        BackgroundService.stop(context)
+      }
+
+      Log.w(TAG, "Parewa: Polling thread terminated! (${this.hashCode()})")
     }
 
     /**

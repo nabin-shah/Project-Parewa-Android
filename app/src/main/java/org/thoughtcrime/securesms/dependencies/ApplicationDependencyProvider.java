@@ -545,10 +545,30 @@ public class ApplicationDependencyProvider implements AppDependencies.Provider {
 
   @Override
   public @NonNull OkHttpClient provideOkHttpClient() {
-    return new OkHttpClient.Builder()
-        .addInterceptor(new StandardUserAgentInterceptor())
-        .dns(SignalServiceNetworkAccess.DNS)
-        .build();
+    // Parewa MVP: Trust all certificates for self-hosted server with self-signed certs.
+    // Without this, ContactDiscoveryRefreshV2 and user search requests fail silently.
+    try {
+      javax.net.ssl.TrustManager[] trustAllCerts = new javax.net.ssl.TrustManager[]{
+        new javax.net.ssl.X509TrustManager() {
+          public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+          public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+          public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }
+        }
+      };
+      javax.net.ssl.SSLContext sslContext = javax.net.ssl.SSLContext.getInstance("SSL");
+      sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+      return new OkHttpClient.Builder()
+          .sslSocketFactory(sslContext.getSocketFactory(), (javax.net.ssl.X509TrustManager) trustAllCerts[0])
+          .hostnameVerifier((hostname, session) -> true)
+          .addInterceptor(new StandardUserAgentInterceptor())
+          .dns(SignalServiceNetworkAccess.DNS)
+          .build();
+    } catch (Exception e) {
+      return new OkHttpClient.Builder()
+          .addInterceptor(new StandardUserAgentInterceptor())
+          .dns(SignalServiceNetworkAccess.DNS)
+          .build();
+    }
   }
 
   @Override

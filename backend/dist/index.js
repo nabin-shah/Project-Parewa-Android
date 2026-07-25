@@ -14,7 +14,6 @@ const nodemailer_1 = __importDefault(require("nodemailer"));
 const node_crypto_1 = __importDefault(require("node:crypto"));
 const http_1 = __importDefault(require("http"));
 const express_1 = __importDefault(require("express"));
-const ws_1 = require("ws");
 // ---- Configuration ----------------------------------------------------------
 const PORT = parseInt(process.env.PORT ?? "8080", 10);
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -63,8 +62,6 @@ function isValidEmail(email) {
 // ---- Express App ------------------------------------------------------------
 const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
-// Store active WebSocket connections by UUID
-const activeConnections = new Map();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 // ---- Health Check -----------------------------------------------------------
@@ -482,74 +479,15 @@ app.get("/v1/profiles/:identifier", (req, res) => {
         version: "1"
     });
 });
-// ---- 404 Catch-All ----------------------------------------------------------
-app.use((_req, res) => {
-    res.status(404).json({ error: "Not found" });
-});
-// ---- Global Error Handler ---------------------------------------------------
-app.use((err, _req, res, _next) => {
-    console.error("[server] Unhandled error:", err);
-    res.status(500).json({ error: "Internal server error" });
-});
-// ---- WebSocket Upgrade & Logic ----------------------------------------------
-server.on("upgrade", (request, socket, head) => {
-    let authHeader = request.headers.authorization;
-    if (Array.isArray(authHeader))
-        authHeader = authHeader[0];
-    if (!authHeader || !authHeader.startsWith("Basic ")) {
-        console.log("[WS] Rejecting connection: Missing Basic Auth");
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-    }
-    try {
-        const b64auth = authHeader.split(" ")[1];
-        const [uuid] = Buffer.from(b64auth, "base64").toString().split(":");
-        wss.handleUpgrade(request, socket, head, async (ws) => {
-            console.log(`[WS] Connection established for UUID: ${uuid}`);
-            activeConnections.set(uuid, ws);
-            // Ping/Pong keepalive
-            const pingInterval = setInterval(() => {
-                if (ws.readyState === ws_1.WebSocket.OPEN)
-                    ws.ping();
-            }, 30000);
-            // Flush offline messages
-            const offlineMessages = await redis.lrange(`parewa:messages:${uuid}`, 0, -1);
-            if (offlineMessages.length > 0) {
-                console.log(`[WS] Flushing ${offlineMessages.length} offline messages to ${uuid}`);
-                for (const msg of offlineMessages) {
-                    ws.send(msg);
-                }
-                await redis.del(`parewa:messages:${uuid}`);
-            }
-            ws.on("close", () => {
-                console.log(`[WS] Connection closed for UUID: ${uuid}`);
-                activeConnections.delete(uuid);
-                clearInterval(pingInterval);
-            });
-        });
-    }
-    catch (e) {
-        socket.destroy();
-    }
-});
 app.put("/v1/messages/:destination", async (req, res) => {
     try {
         const destination = req.params.destination; // UUID of recipient
-        console.log(`[messages] PUT /v1/messages/${destination} - Routing message...`);
-        const payload = JSON.stringify(req.body);
-        const ws = activeConnections.get(destination);
-        if (ws && ws.readyState === ws_1.WebSocket.OPEN) {
-            // Send directly over WebSocket
-            ws.send(payload);
-            console.log(`[messages] Routed directly via WebSocket to ${destination}`);
-        }
-        else {
-            // Offline: push to Redis queue
-            await redis.rpush(`parewa:messages:${destination}`, payload);
-            console.log(`[messages] Stored offline for ${destination}`);
-        }
-        res.status(200).json({ status: "SUCCESS" });
+        console.log(`[messages] PUT /v1/messages/${destination} - Routing message via HTTP fallback...`);
+        const payload = JSON.stringify(req.body || {});
+        // Offline: push to Redis queue
+        await redis.rpush(`parewa:messages:${destination}`, payload);
+        console.log(`[messages] Stored offline for ${destination}`);
+        res.status(200).json({ needsSync: false, status: "SUCCESS" });
     }
     catch (error) {
         console.error("[messages] Error routing message:", error);
@@ -576,21 +514,14 @@ app.get("/v1/messages", async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 });
-app.put("/v1/messages/:destination", async (req, res) => {
-    try {
-        const destination = req.params.destination;
-        console.log(`[messages] PUT /v1/messages/${destination} - Routing message via HTTP fallback...`);
-        // In Parewa MVP, we just store it in the destination's offline queue
-        // We expect the payload to contain the message bytes (or JSON)
-        const payload = JSON.stringify(req.body || {});
-        await redis.rpush(`parewa:messages:${destination}`, payload);
-        console.log(`[messages] Stored offline for ${destination}`);
-        res.status(200).json({ needsSync: false });
-    }
-    catch (error) {
-        console.error("[messages] Error routing message:", error);
-        res.status(500).json({ error: "Internal server error" });
-    }
+// ---- 404 Catch-All ----------------------------------------------------------
+app.use((_req, res) => {
+    res.status(404).json({ error: "Not found" });
+});
+// ---- Global Error Handler ---------------------------------------------------
+app.use((err, _req, res, _next) => {
+    console.error("[server] Unhandled error:", err);
+    res.status(500).json({ error: "Internal server error" });
 });
 // Start Express Server
 const port = process.env.PORT || 8080;
@@ -601,24 +532,5 @@ server.listen(port, () => {
     console.log(`  Redis: redis://${process.env.REDIS_HOST}:6379`);
     console.log(`  SMTP:  ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}`);
     console.log(`============================================`);
-});
-// Start WebSocket Server (Dummy MVP Implementation)
-const wss = new ws_1.WebSocketServer({ server });
-wss.on("connection", (ws, req) => {
-    console.log(`[websocket] Client connected to ${req.url}`);
-    // Send a dummy empty JSON to satisfy initial connection if needed
-    // Signal clients will just wait for pings and responses.
-    ws.on("message", (message) => {
-        const dataLen = Buffer.isBuffer(message) ? message.length : 0;
-        console.log(`[websocket] Received data from client, length: ${dataLen}`);
-        // We intentionally ignore the complex Protobuf RPC protocol here, 
-        // relying on the Android client's HTTP fallback to actually send messages!
-    });
-    ws.on("close", () => {
-        console.log(`[websocket] Client disconnected`);
-    });
-    ws.on("error", (err) => {
-        console.error(`[websocket] Error:`, err);
-    });
 });
 //# sourceMappingURL=index.js.map

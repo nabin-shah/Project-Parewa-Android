@@ -21,7 +21,9 @@ public final class DecryptionsDrainedConstraint implements Constraint {
 
   @Override
   public boolean isMet() {
-    return AppDependencies.getIncomingMessageObserver().getDecryptionDrained();
+    // Parewa MVP: Always met — libsignal-net connects to Signal's servers, not ours,
+    // so decryptionDrained would never become true. We bypass WebSocket for messaging.
+    return true;
   }
 
   @Override
