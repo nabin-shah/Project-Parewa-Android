@@ -267,9 +267,19 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
 
     // 5. Return success — check if user already exists (PNI persistence)
     const phoneNumber = req.body.phone_number || null;
-    let uuid = await redis.get(`parewa:email:${normalizedEmail}`);
-    let pni: string;
+    let uuid = null;
+    let pni = null;
     let isReRegistration = false;
+
+    // Check by phone number FIRST, fallback to email check if phone number is not provided
+    if (phoneNumber) {
+      uuid = await redis.get(`parewa:phone:${phoneNumber}`);
+    }
+    
+    // If we didn't find by phone, try finding by email (legacy fallback)
+    if (!uuid) {
+      uuid = await redis.get(`parewa:email:${normalizedEmail}`);
+    }
 
     if (uuid) {
       // Returning user — reuse existing UUID and PNI
@@ -278,7 +288,7 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
         const existingUser = JSON.parse(existingUserStr);
         pni = existingUser.pni || crypto.randomUUID();
         isReRegistration = true;
-        console.log(`[otp] Returning user detected: ${normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
+        console.log(`[otp] Returning user detected (Phone/Email matched): ${phoneNumber || normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
       } else {
         pni = crypto.randomUUID();
       }
@@ -286,7 +296,7 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
       // Brand new user — generate fresh UUID and PNI
       uuid = crypto.randomUUID();
       pni = crypto.randomUUID();
-      console.log(`[otp] New user created: ${normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
+      console.log(`[otp] New user created: Phone ${phoneNumber}, Email ${normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
     }
 
     // Store/update in all indexes
@@ -298,8 +308,8 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
     });
     await redis.set(`parewa:user:${uuid}`, userPayload);
     await redis.set(`parewa:email:${normalizedEmail}`, uuid);
-
-    // If a real phone number was provided, index it too for contact discovery
+    
+    // Index the phone number for contact discovery
     if (phoneNumber && phoneNumber !== normalizedEmail) {
       await redis.set(`parewa:phone:${phoneNumber}`, uuid);
       console.log(`[otp] Phone number indexed: ${phoneNumber} → ${uuid}`);
@@ -576,13 +586,33 @@ app.get("/v1/profiles/:identifier", (req: Request, res: Response) => {
 app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
   try {
     const destination = req.params.destination as string; // UUID of recipient
-    console.log(`[messages] PUT /v1/messages/${destination} - Routing message via HTTP fallback...`);
+    const senderUuid = getUuidFromAuth(req);
+    console.log(`[messages] PUT /v1/messages/${destination} - Routing message from ${senderUuid} via HTTP fallback...`);
 
-    const payload = JSON.stringify(req.body || {});
-    
-    // Offline: push to Redis queue
-    await redis.rpush(`parewa:messages:${destination}`, payload);
-    console.log(`[messages] Stored offline for ${destination}`);
+    const body = req.body || {};
+    const messages = body.messages || [];
+    const timestamp = body.timestamp || Date.now();
+    const urgent = body.urgent || false;
+
+    for (const msg of messages) {
+      // Map OutgoingPushMessage to Envelope format expected by Android client
+      const envelope = {
+        type: msg.type,
+        sourceServiceId: senderUuid,
+        sourceDeviceId: 1, // Defaulting to 1 for MVP
+        destinationServiceId: destination,
+        clientTimestamp: timestamp,
+        serverTimestamp: Date.now(),
+        ephemeral: false,
+        urgent: urgent,
+        content: msg.content
+      };
+
+      // Offline: push to Redis queue
+      await redis.rpush(`parewa:messages:${destination}`, JSON.stringify(envelope));
+    }
+
+    console.log(`[messages] Stored ${messages.length} offline envelope(s) for ${destination}`);
 
     res.status(200).json({ needsSync: false, status: "SUCCESS" });
   } catch (error) {

@@ -141,6 +141,7 @@ public class OkHttpWebSocketConnection extends WebSocketListener implements WebS
 
       OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder().sslSocketFactory(new Tls12SocketFactory(socketFactory.getFirst()),
                                                                                        socketFactory.getSecond())
+                                                                     .hostnameVerifier((hostname, session) -> true)
                                                                      .connectionSpecs(serviceUrl.getConnectionSpecs().orElse(Util.immutableList(ConnectionSpec.RESTRICTED_TLS)))
                                                                      .readTimeout(KEEPALIVE_FREQUENCY_SECONDS + 10, TimeUnit.SECONDS)
                                                                      .dns(dns.orElse(Dns.SYSTEM))

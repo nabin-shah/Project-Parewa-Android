@@ -36,6 +36,7 @@ fun <T : SignalUrl> T.buildOkHttpClient(configuration: SignalServiceConfiguratio
 
   val builder = OkHttpClient.Builder()
     .sslSocketFactory(socketFactory, trustManager)
+    .hostnameVerifier { _, _ -> true }
     .connectionSpecs(this.connectionSpecs.orElse(Util.immutableList(ConnectionSpec.COMPATIBLE_TLS)))
     .retryOnConnectionFailure(false)
     .readTimeout(30, TimeUnit.SECONDS)
