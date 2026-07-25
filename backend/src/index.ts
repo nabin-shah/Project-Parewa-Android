@@ -431,8 +431,13 @@ app.get("/v2/keys", async (req: Request, res: Response) => {
   if (rawKeys) {
     try {
       const parsed = JSON.parse(rawKeys);
-      ecCount = Array.isArray(parsed.preKeys) ? parsed.preKeys.length : 0;
-      pqCount = Array.isArray(parsed.pqPreKeys) ? parsed.pqPreKeys.length : 0;
+      // If signedPreKey is null or missing, return 0 to force Android client to sync keys!
+      if (parsed.signedPreKey) {
+        ecCount = Array.isArray(parsed.preKeys) ? parsed.preKeys.length : 0;
+        pqCount = Array.isArray(parsed.pqPreKeys) ? parsed.pqPreKeys.length : 0;
+      } else {
+        console.log(`[keys] GET /v2/keys - UUID: ${uuid} missing signedPreKey in Redis! Reporting 0 count to force PreKeysSyncJob.`);
+      }
     } catch (e) { /* ignore parse errors */ }
   }
   
@@ -453,14 +458,35 @@ app.put("/v2/keys", async (req: Request, res: Response) => {
     }
     
     const redisKey = `parewa:keys:${uuid}:${identity}`;
-    await redis.set(redisKey, JSON.stringify(body));
+    const existingRaw = await redis.get(redisKey);
+    let mergedBody = body;
     
+    // Safely merge with existing keys in Redis so a partial sync never overwrites signedPreKey with null!
+    if (existingRaw) {
+      try {
+        const existingData = JSON.parse(existingRaw);
+        mergedBody = {
+          ...existingData,
+          ...body,
+          signedPreKey: (body.signedPreKey !== null && body.signedPreKey !== undefined) ? body.signedPreKey : existingData.signedPreKey,
+          identityKey: (body.identityKey !== null && body.identityKey !== undefined) ? body.identityKey : existingData.identityKey,
+          registrationId: (body.registrationId !== null && body.registrationId !== undefined) ? body.registrationId : existingData.registrationId,
+          pqLastResortPreKey: (body.pqLastResortPreKey !== null && body.pqLastResortPreKey !== undefined) ? body.pqLastResortPreKey : existingData.pqLastResortPreKey,
+          preKeys: (Array.isArray(body.preKeys) && body.preKeys.length > 0) ? body.preKeys : (existingData.preKeys || []),
+          pqPreKeys: (Array.isArray(body.pqPreKeys) && body.pqPreKeys.length > 0) ? body.pqPreKeys : (existingData.pqPreKeys || []),
+        };
+      } catch (e) {
+        console.warn("[keys] Error parsing existing keys for merge, replacing entirely.");
+      }
+    }
+
+    await redis.set(redisKey, JSON.stringify(mergedBody));
     // Also store under plain UUID for cross-identity lookup (recipient fetches by UUID only)
-    await redis.set(`parewa:keys:${uuid}`, JSON.stringify(body));
+    await redis.set(`parewa:keys:${uuid}`, JSON.stringify(mergedBody));
     
-    const preKeyCount = Array.isArray(body.preKeys) ? body.preKeys.length : 0;
-    const pqPreKeyCount = Array.isArray(body.pqPreKeys) ? body.pqPreKeys.length : 0;
-    console.log(`[keys] PUT /v2/keys - Stored keys for ${uuid}:${identity} — EC: ${preKeyCount}, PQ: ${pqPreKeyCount}, hasSignedPreKey: ${!!body.signedPreKey}, hasIdentityKey: ${!!body.identityKey}`);
+    const preKeyCount = Array.isArray(mergedBody.preKeys) ? mergedBody.preKeys.length : 0;
+    const pqPreKeyCount = Array.isArray(mergedBody.pqPreKeys) ? mergedBody.pqPreKeys.length : 0;
+    console.log(`[keys] PUT /v2/keys - Stored keys for ${uuid}:${identity} — EC: ${preKeyCount}, PQ: ${pqPreKeyCount}, hasSignedPreKey: ${!!mergedBody.signedPreKey}, hasIdentityKey: ${!!mergedBody.identityKey}`);
 
     res.status(200).json({ status: "SUCCESS" });
   } catch (error) {
