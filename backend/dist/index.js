@@ -227,23 +227,67 @@ app.post("/v1/accounts/code", async (req, res) => {
         // 4. Delete OTP on successful verification (one-time use)
         await redis.del(otpKey);
         console.log(`[otp] Verified successfully for ${normalizedEmail}`);
-        // 5. Return success and generate authoritative ACI/PNI
-        let uuid = await redis.get(`parewa:email:${normalizedEmail}`) || await redis.get(`parewa:phone:${normalizedEmail}`);
-        if (!uuid) {
-            uuid = node_crypto_1.default.randomUUID();
+        // 5. Return success — check if user already exists (PNI persistence)
+        const phoneNumber = req.body.phone_number || null;
+        let uuid = null;
+        let pni = null;
+        let isReRegistration = false;
+        let existingUser = {};
+        // Check by phone number FIRST (Primary Key enforcement)
+        if (phoneNumber) {
+            uuid = await redis.get(`parewa:phone:${phoneNumber}`);
+            if (uuid) {
+                console.log(`[otp] Found existing user by Phone Number ${phoneNumber} → UUID: ${uuid}`);
+            }
         }
-        const pni = node_crypto_1.default.randomUUID();
-        // Store in all indexes
-        const userPayload = JSON.stringify({ uuid, pni, email: normalizedEmail, phone_number: normalizedEmail });
-        await redis.set(`parewa:user:${uuid}`, userPayload);
+        // Fallback to email check if phone number lookup failed (Legacy or Email-only registration)
+        if (!uuid) {
+            uuid = await redis.get(`parewa:email:${normalizedEmail}`);
+            if (uuid && phoneNumber) {
+                console.log(`[otp] Upgrading legacy user found by Email ${normalizedEmail} to index new Phone Number ${phoneNumber}`);
+            }
+        }
+        if (uuid) {
+            // Returning user — reuse existing UUID and PNI
+            const existingUserStr = await redis.get(`parewa:user:${uuid}`);
+            if (existingUserStr) {
+                existingUser = JSON.parse(existingUserStr);
+                pni = existingUser.pni || node_crypto_1.default.randomUUID();
+                isReRegistration = true;
+                console.log(`[otp] Returning user restored: Phone/Email matched → UUID: ${uuid}, PNI: ${pni}`);
+            }
+            else {
+                pni = node_crypto_1.default.randomUUID();
+            }
+        }
+        else {
+            // Brand new user — generate fresh UUID and PNI
+            uuid = node_crypto_1.default.randomUUID();
+            pni = node_crypto_1.default.randomUUID();
+            console.log(`[otp] New user created: Phone ${phoneNumber}, Email ${normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
+        }
+        // Preserve existing details, but update core identifiers
+        const updatedUser = {
+            ...existingUser,
+            uuid,
+            pni,
+            email: normalizedEmail,
+            phone_number: phoneNumber || existingUser.phone_number || normalizedEmail
+        };
+        // Store/update in all indexes
+        await redis.set(`parewa:user:${uuid}`, JSON.stringify(updatedUser));
         await redis.set(`parewa:email:${normalizedEmail}`, uuid);
-        await redis.set(`parewa:phone:${normalizedEmail}`, uuid);
+        // Index the phone number for contact discovery
+        if (phoneNumber && phoneNumber !== normalizedEmail) {
+            await redis.set(`parewa:phone:${phoneNumber}`, uuid);
+            console.log(`[otp] Phone number indexed: ${phoneNumber} → ${uuid}`);
+        }
         res.status(200).json({
             uuid: uuid,
             pni: pni,
             storageCapable: false,
-            reRegistration: false,
-            number: normalizedEmail
+            reRegistration: isReRegistration,
+            number: phoneNumber || normalizedEmail
         });
     }
     catch (err) {
@@ -400,17 +444,30 @@ app.post("/v1/directory/parewa", async (req, res) => {
     try {
         const numbers = req.body.numbers || [];
         const results = {};
-        for (const num of numbers) {
-            const uuid = await redis.get(`parewa:phone:${num}`) || await redis.get(`parewa:email:${num}`);
+        for (let num of numbers) {
+            // Ensure we strip any whitespace just in case
+            num = num.trim();
+            let uuid = await redis.get(`parewa:phone:${num}`);
+            // Fallback lookup if the number was stored without '+' or under email
+            if (!uuid) {
+                uuid = await redis.get(`parewa:email:${num}`);
+            }
+            if (!uuid && num.startsWith("+")) {
+                uuid = await redis.get(`parewa:phone:${num.substring(1)}`);
+            }
             if (uuid) {
                 const userStr = await redis.get(`parewa:user:${uuid}`);
                 if (userStr) {
                     const user = JSON.parse(userStr);
                     results[num] = {
                         uuid: user.uuid,
-                        pni: user.pni
+                        pni: user.pni || node_crypto_1.default.randomUUID() // fallback for old accounts
                     };
+                    console.log(`[directory] Found match for ${num} -> UUID: ${user.uuid}`);
                 }
+            }
+            else {
+                console.log(`[directory] No match found for ${num}`);
             }
         }
         res.status(200).json({ results });
@@ -482,11 +539,29 @@ app.get("/v1/profiles/:identifier", (req, res) => {
 app.put("/v1/messages/:destination", async (req, res) => {
     try {
         const destination = req.params.destination; // UUID of recipient
-        console.log(`[messages] PUT /v1/messages/${destination} - Routing message via HTTP fallback...`);
-        const payload = JSON.stringify(req.body || {});
-        // Offline: push to Redis queue
-        await redis.rpush(`parewa:messages:${destination}`, payload);
-        console.log(`[messages] Stored offline for ${destination}`);
+        const senderUuid = getUuidFromAuth(req);
+        console.log(`[messages] PUT /v1/messages/${destination} - Routing message from ${senderUuid} via HTTP fallback...`);
+        const body = req.body || {};
+        const messages = body.messages || [];
+        const timestamp = body.timestamp || Date.now();
+        const urgent = body.urgent || false;
+        for (const msg of messages) {
+            // Map OutgoingPushMessage to Envelope format expected by Android client
+            const envelope = {
+                type: msg.type,
+                sourceServiceId: senderUuid,
+                sourceDeviceId: 1, // Defaulting to 1 for MVP
+                destinationServiceId: destination,
+                clientTimestamp: timestamp,
+                serverTimestamp: Date.now(),
+                ephemeral: false,
+                urgent: urgent,
+                content: msg.content
+            };
+            // Offline: push to Redis queue
+            await redis.rpush(`parewa:messages:${destination}`, JSON.stringify(envelope));
+        }
+        console.log(`[messages] Stored ${messages.length} offline envelope(s) for ${destination}`);
         res.status(200).json({ needsSync: false, status: "SUCCESS" });
     }
     catch (error) {

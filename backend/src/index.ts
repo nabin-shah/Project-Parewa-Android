@@ -270,25 +270,32 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
     let uuid = null;
     let pni = null;
     let isReRegistration = false;
+    let existingUser: any = {};
 
-    // Check by phone number FIRST, fallback to email check if phone number is not provided
+    // Check by phone number FIRST (Primary Key enforcement)
     if (phoneNumber) {
       uuid = await redis.get(`parewa:phone:${phoneNumber}`);
+      if (uuid) {
+        console.log(`[otp] Found existing user by Phone Number ${phoneNumber} → UUID: ${uuid}`);
+      }
     }
     
-    // If we didn't find by phone, try finding by email (legacy fallback)
+    // Fallback to email check if phone number lookup failed (Legacy or Email-only registration)
     if (!uuid) {
       uuid = await redis.get(`parewa:email:${normalizedEmail}`);
+      if (uuid && phoneNumber) {
+        console.log(`[otp] Upgrading legacy user found by Email ${normalizedEmail} to index new Phone Number ${phoneNumber}`);
+      }
     }
 
     if (uuid) {
       // Returning user — reuse existing UUID and PNI
       const existingUserStr = await redis.get(`parewa:user:${uuid}`);
       if (existingUserStr) {
-        const existingUser = JSON.parse(existingUserStr);
+        existingUser = JSON.parse(existingUserStr);
         pni = existingUser.pni || crypto.randomUUID();
         isReRegistration = true;
-        console.log(`[otp] Returning user detected (Phone/Email matched): ${phoneNumber || normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
+        console.log(`[otp] Returning user restored: Phone/Email matched → UUID: ${uuid}, PNI: ${pni}`);
       } else {
         pni = crypto.randomUUID();
       }
@@ -299,14 +306,17 @@ app.post("/v1/accounts/code", async (req: Request, res: Response): Promise<void>
       console.log(`[otp] New user created: Phone ${phoneNumber}, Email ${normalizedEmail} → UUID: ${uuid}, PNI: ${pni}`);
     }
 
-    // Store/update in all indexes
-    const userPayload = JSON.stringify({
+    // Preserve existing details, but update core identifiers
+    const updatedUser = {
+      ...existingUser,
       uuid,
       pni,
       email: normalizedEmail,
-      phone_number: phoneNumber || normalizedEmail
-    });
-    await redis.set(`parewa:user:${uuid}`, userPayload);
+      phone_number: phoneNumber || existingUser.phone_number || normalizedEmail
+    };
+    
+    // Store/update in all indexes
+    await redis.set(`parewa:user:${uuid}`, JSON.stringify(updatedUser));
     await redis.set(`parewa:email:${normalizedEmail}`, uuid);
     
     // Index the phone number for contact discovery
@@ -501,17 +511,31 @@ app.post("/v1/directory/parewa", async (req: Request, res: Response) => {
     const numbers: string[] = req.body.numbers || [];
     const results: Record<string, any> = {};
     
-    for (const num of numbers) {
-      const uuid = await redis.get(`parewa:phone:${num}`) || await redis.get(`parewa:email:${num}`);
+    for (let num of numbers) {
+      // Ensure we strip any whitespace just in case
+      num = num.trim();
+      let uuid = await redis.get(`parewa:phone:${num}`);
+      
+      // Fallback lookup if the number was stored without '+' or under email
+      if (!uuid) {
+        uuid = await redis.get(`parewa:email:${num}`);
+      }
+      if (!uuid && num.startsWith("+")) {
+        uuid = await redis.get(`parewa:phone:${num.substring(1)}`);
+      }
+      
       if (uuid) {
         const userStr = await redis.get(`parewa:user:${uuid}`);
         if (userStr) {
           const user = JSON.parse(userStr);
           results[num] = {
             uuid: user.uuid,
-            pni: user.pni
+            pni: user.pni || crypto.randomUUID() // fallback for old accounts
           };
+          console.log(`[directory] Found match for ${num} -> UUID: ${user.uuid}`);
         }
+      } else {
+        console.log(`[directory] No match found for ${num}`);
       }
     }
     res.status(200).json({ results });
