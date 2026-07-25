@@ -422,17 +422,27 @@ app.put("/v2/keys", async (req: Request, res: Response) => {
   try {
     const uuid = getUuidFromAuth(req);
     const deviceId = 1; // Default single-device deployment
-    const { identityKey, signedPreKey, preKeys } = req.body;
+    const { identityKey, signedPreKey, preKeys, pqPreKey, pqLastResortPreKey, kyberPreKey } = req.body;
 
     console.log(`[keys] PUT /v2/keys - Storing keys for ${uuid} (Device ${deviceId})`);
 
     // Store main keys in a Redis Hash
     const hashKey = `parewa:keys:${uuid}:${deviceId}`;
-    await redis.hset(hashKey, {
+    
+    const hashData: any = {
       identityKey: typeof identityKey === 'string' ? identityKey : JSON.stringify(identityKey),
       signedPreKey: JSON.stringify(signedPreKey),
       registrationId: req.body.registrationId || 0
-    });
+    };
+
+    if (pqPreKey || kyberPreKey) {
+        hashData.kyberPreKey = JSON.stringify(pqPreKey || kyberPreKey);
+    }
+    if (pqLastResortPreKey) {
+        hashData.pqLastResortPreKey = JSON.stringify(pqLastResortPreKey);
+    }
+
+    await redis.hset(hashKey, hashData);
 
     // Store one-time preKeys in a Redis List
     const listKey = `parewa:prekeys:${uuid}:${deviceId}`;
@@ -456,7 +466,11 @@ app.put("/v2/keys", async (req: Request, res: Response) => {
 app.get("/v2/keys/:identifier/:deviceId?", async (req: Request, res: Response) => {
   try {
     const identifier = req.params.identifier as string; // Target user's UUID
-    const deviceId = (req.params.deviceId as string) || 1;
+    let deviceId: string | number = req.params.deviceId as string;
+    
+    if (!deviceId || deviceId === '*') {
+      deviceId = 1;
+    }
     
     console.log(`[keys] GET /v2/keys - Fetching keys for ${identifier} (Device ${deviceId})`);
 
@@ -483,7 +497,9 @@ app.get("/v2/keys/:identifier/:deviceId?", async (req: Request, res: Response) =
           deviceId: parseInt(deviceId.toString(), 10),
           registrationId: parseInt(mainKeys.registrationId || "0", 10),
           signedPreKey: JSON.parse(mainKeys.signedPreKey || "{}"),
-          preKey: preKey
+          preKey: preKey,
+          pqPreKey: mainKeys.kyberPreKey ? JSON.parse(mainKeys.kyberPreKey) : undefined,
+          pqLastResortPreKey: mainKeys.pqLastResortPreKey ? JSON.parse(mainKeys.pqLastResortPreKey) : undefined
         }
       ]
     };
