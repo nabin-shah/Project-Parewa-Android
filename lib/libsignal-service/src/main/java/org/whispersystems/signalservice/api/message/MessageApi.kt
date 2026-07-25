@@ -22,6 +22,16 @@ import org.whispersystems.signalservice.api.fromWebSocketRequest
 import org.whispersystems.signalservice.api.websocket.SignalWebSocket
 import org.whispersystems.signalservice.internal.push.OutgoingPushMessageList
 import org.whispersystems.signalservice.internal.push.SendMessageResponse
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
+import org.signal.core.util.logging.Log
+import java.security.cert.X509Certificate
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+import org.signal.network.exceptions.NonSuccessfulResponseCodeException
 
 /**
  * Collection of endpoints for operating on messages.
@@ -61,16 +71,44 @@ class MessageApi(
    * - 428: Sender proof required
    */
   fun sendMessage(messageList: OutgoingPushMessageList, sealedSenderAccess: SealedSenderAccess?, story: Boolean): NetworkResult<SendMessageResponse> {
-    val request = WebSocketRequestMessage.put("/v1/messages/${messageList.destination}?story=${story.toQueryParam()}", messageList)
+    Log.i("MessageApi", "Parewa MVP: Bypassing WebSocket and using HTTP fallback for PUT /v1/messages/${messageList.destination}")
+    return try {
+      val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+      })
 
-    return if (sealedSenderAccess == null) {
-      NetworkResult.fromWebSocket(sendMessageResponseConverter) { authWebSocket.request(request) }
-    } else {
-      NetworkResult.fromWebSocket(sendMessageResponseConverter) { unauthWebSocket.request(request, sealedSenderAccess) }
-        .fallback(
-          predicate = { it is NetworkResult.StatusCodeError && it.code == 401 },
-          fallback = { NetworkResult.fromWebSocket(sendMessageResponseConverter) { authWebSocket.request(request) } }
-        )
+      val sslContext = SSLContext.getInstance("SSL")
+      sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+      val sslSocketFactory = sslContext.socketFactory
+
+      val client = OkHttpClient.Builder()
+        .sslSocketFactory(sslSocketFactory, trustAllCerts[0] as X509TrustManager)
+        .hostnameVerifier { _, _ -> true }
+        .build()
+
+      val baseUrl = "https://192.168.178.200"
+      val url = "$baseUrl/v1/messages/${messageList.destination}?story=${story.toQueryParam()}"
+      
+      // Serialize messageList to send proper payload to the backend
+      val payloadBody = org.signal.network.util.JsonUtil.toJson(messageList)
+      val body = payloadBody.toRequestBody("application/json".toMediaType())
+      val request = Request.Builder().url(url).put(body).build()
+      
+      client.newCall(request).execute().use { response ->
+        if (response.isSuccessful) {
+          Log.i("MessageApi", "Parewa MVP: HTTP fallback successful!")
+          val mockResponse = SendMessageResponse(false, false)
+          NetworkResult.Success(mockResponse)
+        } else {
+          Log.w("MessageApi", "Parewa MVP: HTTP fallback failed with ${response.code}")
+          NetworkResult.StatusCodeError(NonSuccessfulResponseCodeException(response.code, "", null as String?, emptyMap<String, String>()))
+        }
+      }
+    } catch (e: Exception) {
+      Log.e("MessageApi", "Parewa MVP: HTTP fallback exception", e)
+      NetworkResult.ApplicationError(e)
     }
   }
 

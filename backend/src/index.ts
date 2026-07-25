@@ -7,6 +7,7 @@ import "dotenv/config";
 import cors from "cors";
 import Redis from "ioredis";
 import nodemailer from "nodemailer";
+import { WebSocketServer } from "ws";
 import crypto from "node:crypto";
 import http from "http";
 import express, { Request, Response, NextFunction } from "express";
@@ -656,13 +657,55 @@ app.get("/v1/messages", async (req: Request, res: Response) => {
   }
 });
 
-// ---- Start Server -----------------------------------------------------------
+app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
+  try {
+    const destination = req.params.destination as string;
+    console.log(`[messages] PUT /v1/messages/${destination} - Routing message via HTTP fallback...`);
+    
+    // In Parewa MVP, we just store it in the destination's offline queue
+    // We expect the payload to contain the message bytes (or JSON)
+    const payload = JSON.stringify(req.body || {});
+    await redis.rpush(`parewa:messages:${destination}`, payload);
+    console.log(`[messages] Stored offline for ${destination}`);
+    
+    res.status(200).json({ needsSync: false });
+  } catch (error) {
+    console.error("[messages] Error routing message:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("============================================");
-  console.log("  Project Parewa — Auth Service");
-  console.log(`  Listening on http://0.0.0.0:${PORT}`);
-  console.log(`  Redis: ${REDIS_URL}`);
-  console.log(`  SMTP:  ${SMTP_HOST}:${SMTP_PORT}`);
-  console.log("============================================");
+// Start Express Server
+const port = process.env.PORT || 8080;
+const server = app.listen(port, () => {
+  console.log(`============================================`);
+  console.log(`  Project Parewa — Auth Service`);
+  console.log(`  Listening on http://0.0.0.0:${port}`);
+  console.log(`  Redis: redis://${process.env.REDIS_HOST}:6379`);
+  console.log(`  SMTP:  ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}`);
+  console.log(`============================================`);
+});
+
+// Start WebSocket Server (Dummy MVP Implementation)
+const wss = new WebSocketServer({ server });
+
+wss.on("connection", (ws, req) => {
+  console.log(`[websocket] Client connected to ${req.url}`);
+  
+  // Send a dummy empty JSON to satisfy initial connection if needed
+  // Signal clients will just wait for pings and responses.
+  
+  ws.on("message", (message) => {
+    console.log(`[websocket] Received data from client, length: ${message.length}`);
+    // We intentionally ignore the complex Protobuf RPC protocol here, 
+    // relying on the Android client's HTTP fallback to actually send messages!
+  });
+
+  ws.on("close", () => {
+    console.log(`[websocket] Client disconnected`);
+  });
+  
+  ws.on("error", (err) => {
+    console.error(`[websocket] Error:`, err);
+  });
 });
