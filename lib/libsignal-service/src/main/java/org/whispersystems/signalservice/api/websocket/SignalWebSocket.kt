@@ -165,29 +165,85 @@ sealed class SignalWebSocket(
   }
 
   fun request(request: WebSocketRequestMessage): Single<WebsocketResponse> {
-    return try {
-      restartDelayedDisconnectIfNecessary()
-      getWebSocket().sendRequest(request)
-    } catch (e: IOException) {
-      Single.error(e)
-    }
+    return Single.fromCallable {
+      executeRestFallback(request)
+    }.subscribeOn(Schedulers.io())
   }
 
   fun request(request: WebSocketRequestMessage, timeout: Duration): Single<WebsocketResponse> {
-    return try {
-      restartDelayedDisconnectIfNecessary()
-      getWebSocket().sendRequest(request, timeout.inWholeSeconds)
-    } catch (e: IOException) {
-      Single.error(e)
-    }
+    return Single.fromCallable {
+      executeRestFallback(request)
+    }.subscribeOn(Schedulers.io())
   }
 
   /**
    * Coroutine-friendly variant of [request].
    */
   suspend fun requestSuspend(request: WebSocketRequestMessage, timeout: Duration = WebSocketConnection.DEFAULT_SEND_TIMEOUT): WebsocketResponse {
-    restartDelayedDisconnectIfNecessary()
-    return getWebSocket().sendRequestSuspend(request, timeout)
+    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+      executeRestFallback(request)
+    }
+  }
+
+  private fun executeRestFallback(request: WebSocketRequestMessage): WebsocketResponse {
+    val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
+      override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+      override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+      override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+    })
+    val sslContext = javax.net.ssl.SSLContext.getInstance("SSL")
+    sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+    val client = okhttp3.OkHttpClient.Builder()
+      .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
+      .hostnameVerifier { _, _ -> true }
+      .retryOnConnectionFailure(false)
+      .build()
+      
+    val baseUrl = "https://192.168.178.200"
+    val url = baseUrl + request.path
+    Log.i(TAG, "executeRestFallback: ${request.verb} $url")
+    
+    val reqBuilder = okhttp3.Request.Builder().url(url)
+    
+    val uuid = System.getProperty("parewa_uuid") ?: ""
+    val password = System.getProperty("parewa_password") ?: ""
+    if (uuid.isNotEmpty()) {
+      val basicAuth = okhttp3.Credentials.basic(uuid, password)
+      reqBuilder.addHeader("Authorization", basicAuth)
+    }
+    
+    for (header in request.headers) {
+      val split = header.split(":", limit = 2)
+      if (split.size == 2 && split[0].trim().lowercase() != "authorization") {
+        reqBuilder.addHeader(split[0].trim(), split[1].trim())
+      }
+    }
+    
+    val method = request.verb ?: "GET"
+    if (method == "GET") {
+      reqBuilder.get()
+    } else if (method == "PUT") {
+      val body = okhttp3.RequestBody.create(null, request.body?.toByteArray() ?: ByteArray(0))
+      reqBuilder.put(body)
+    } else if (method == "POST") {
+      val body = okhttp3.RequestBody.create(null, request.body?.toByteArray() ?: ByteArray(0))
+      reqBuilder.post(body)
+    } else if (method == "DELETE") {
+      reqBuilder.delete()
+    }
+    
+    try {
+      val response = client.newCall(reqBuilder.build()).execute()
+      return WebsocketResponse(
+        response.code,
+        response.body?.string() ?: "",
+        emptyList(),
+        false
+      )
+    } catch (e: Exception) {
+      Log.e(TAG, "executeRestFallback failed", e)
+      throw java.io.IOException("executeRestFallback failed: " + e.message, e)
+    }
   }
 
   @Throws(IOException::class)

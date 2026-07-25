@@ -399,6 +399,11 @@ public class ApplicationDependencyProvider implements AppDependencies.Provider {
       if (credentialsProvider.isInvalid()) {
         throw new WebSocketUnavailableException("Invalid auth credentials");
       }
+      
+      if (credentialsProvider.getAci() != null) {
+        System.setProperty("parewa_uuid", credentialsProvider.getAci().toString());
+        System.setProperty("parewa_password", credentialsProvider.getPassword());
+      }
 
       Network network = libSignalNetworkSupplier.get();
       return new LibSignalChatConnection("libsignal-auth",
