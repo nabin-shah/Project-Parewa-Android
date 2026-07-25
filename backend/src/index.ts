@@ -385,13 +385,10 @@ app.post("/v1/registration", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/v1/certificate/delivery", (_req: Request, res: Response) => {
-  // PAREWA: Android RotateCertificateJob now skips certificate rotation entirely.
-  // This endpoint just needs to not crash. Return an empty-ish response.
-  console.log("[mock] Mock certificate delivery");
-  res.status(200).json({
-    certificate: ""
-  });
+app.get(["/v1/certificate/delivery", "/v1/certificate/delivery/*"], (_req: Request, res: Response) => {
+  // PAREWA: Return 404 so Android client skips sealed sender protobuf decoding and uses standard delivery
+  console.log("[mock] GET /v1/certificate/delivery - Returning 404 to bypass sealed sender protobuf check");
+  res.status(404).send();
 });
 
 // ==============================================================================
@@ -644,18 +641,9 @@ app.get("/v1/accounts/number/:number", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/v1/profiles/:identifier", (req: Request, res: Response) => {
+app.get(["/v1/profiles/:identifier", "/v1/profiles/:identifier/*"], (req: Request, res: Response) => {
   const identifier = req.params.identifier as string;
-  console.log(`[mock] GET /v1/profiles/${identifier}`);
-  res.status(200).json({
-    identityKey: "mock_identity_key",
-    version: "1"
-  });
-});
-
-app.get("/v1/profile/:uuid", (req: Request, res: Response) => {
-  const uuid = req.params.uuid as string;
-  console.log(`[mock] GET /v1/profile/${uuid}`);
+  console.log(`[mock] GET ${req.path} for identifier ${identifier}`);
   res.status(200).json({
     identityKey: "mock_identity_key",
     name: "Parewa User",
@@ -663,14 +651,13 @@ app.get("/v1/profile/:uuid", (req: Request, res: Response) => {
     capabilities: {
       uuid: true
     },
-    uuid: uuid
+    version: "1"
   });
 });
 
-app.get("/v1/profile/:uuid/:version", (req: Request, res: Response) => {
+app.get(["/v1/profile/:uuid", "/v1/profile/:uuid/*"], (req: Request, res: Response) => {
   const uuid = req.params.uuid as string;
-  const version = req.params.version as string;
-  console.log(`[mock] GET /v1/profile/${uuid}/${version}`);
+  console.log(`[mock] GET ${req.path} for uuid ${uuid}`);
   res.status(200).json({
     identityKey: "mock_identity_key",
     name: "Parewa User",
