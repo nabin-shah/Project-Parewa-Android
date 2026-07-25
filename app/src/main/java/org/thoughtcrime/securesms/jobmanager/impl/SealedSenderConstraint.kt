@@ -46,32 +46,9 @@ object SealedSenderConstraint : Constraint {
    */
   @JvmStatic
   fun checkAndSetValidity() {
-    try {
-      val requiredTypes = SignalStore.phoneNumberPrivacy.getRequiredCertificateTypes()
-
-      for (certificateType in requiredTypes) {
-        val certificateBytes = SignalStore.certificate.getUnidentifiedAccessCertificate(certificateType)
-
-        if (certificateBytes == null) {
-          Log.w(TAG, "Missing certificate $certificateType. Enqueuing rotation.")
-          AppDependencies.jobManager.add(RotateCertificateJob())
-          return
-        }
-
-        val certificate = SenderCertificate(certificateBytes)
-        if (System.currentTimeMillis() > certificate.expiration - CERTIFICATE_EXPIRATION_BUFFER) {
-          Log.w(TAG, "Certificate $certificateType is expired or near expiry. Enqueuing rotation.")
-          AppDependencies.jobManager.add(RotateCertificateJob())
-          return
-        }
-      }
-
-      Log.i(TAG, "All sealed sender certificates are valid.")
-      markValid()
-    } catch (e: Exception) {
-      Log.w(TAG, "Error checking certificate validity. Enqueuing rotation.", e)
-      AppDependencies.jobManager.add(RotateCertificateJob())
-    }
+    // PAREWA: We don't use sealed sender certificates. Just mark as valid immediately.
+    Log.i(TAG, "PAREWA: Skipping certificate validity check — sealed sender is disabled.")
+    markValid()
   }
 
   object Observer : ConstraintObserver {

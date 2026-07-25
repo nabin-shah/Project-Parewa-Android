@@ -386,9 +386,11 @@ app.post("/v1/registration", (_req: Request, res: Response) => {
 });
 
 app.get("/v1/certificate/delivery", (_req: Request, res: Response) => {
+  // PAREWA: Android RotateCertificateJob now skips certificate rotation entirely.
+  // This endpoint just needs to not crash. Return an empty-ish response.
   console.log("[mock] Mock certificate delivery");
   res.status(200).json({
-    certificate: "mock_certificate"
+    certificate: ""
   });
 });
 
@@ -420,19 +422,45 @@ function getUuidFromAuth(req: Request): string {
 
 app.get("/v2/keys", async (req: Request, res: Response) => {
   const uuid = getUuidFromAuth(req);
-  console.log(`[keys] GET /v2/keys - UUID: ${uuid} requesting key counts`);
-  // Returning 0 for both forces the client to upload a fresh batch of keys (PUT /v2/keys)
-  res.status(200).json({ count: 0, pqCount: 0 });
+  const identity = (req.query.identity as string) || "aci";
+  const redisKey = `parewa:keys:${uuid}:${identity}`;
+  const rawKeys = await redis.get(redisKey);
+  
+  let ecCount = 0;
+  let pqCount = 0;
+  if (rawKeys) {
+    try {
+      const parsed = JSON.parse(rawKeys);
+      ecCount = Array.isArray(parsed.preKeys) ? parsed.preKeys.length : 0;
+      pqCount = Array.isArray(parsed.pqPreKeys) ? parsed.pqPreKeys.length : 0;
+    } catch (e) { /* ignore parse errors */ }
+  }
+  
+  console.log(`[keys] GET /v2/keys - UUID: ${uuid}, identity: ${identity}, ecCount: ${ecCount}, pqCount: ${pqCount}`);
+  res.status(200).json({ count: ecCount, pqCount: pqCount });
 });
 
 app.put("/v2/keys", async (req: Request, res: Response) => {
   try {
     const uuid = getUuidFromAuth(req);
-    console.log(`[keys] PUT /v2/keys - Received keys for UUID: ${uuid}`);
-
-    // Use a simple string key
-    await redis.set(`parewa:keys:${uuid}`, JSON.stringify(req.body));
-    console.log(`[keys] Stored keys for ${uuid}:`, JSON.stringify(req.body));
+    const identity = (req.query.identity as string) || "aci";
+    const body = req.body;
+    
+    if (!body || Object.keys(body).length === 0) {
+      console.error(`[keys] PUT /v2/keys - EMPTY BODY for UUID: ${uuid}. Content-Type: ${req.headers["content-type"]}`);
+      res.status(400).json({ error: "Empty body" });
+      return;
+    }
+    
+    const redisKey = `parewa:keys:${uuid}:${identity}`;
+    await redis.set(redisKey, JSON.stringify(body));
+    
+    // Also store under plain UUID for cross-identity lookup (recipient fetches by UUID only)
+    await redis.set(`parewa:keys:${uuid}`, JSON.stringify(body));
+    
+    const preKeyCount = Array.isArray(body.preKeys) ? body.preKeys.length : 0;
+    const pqPreKeyCount = Array.isArray(body.pqPreKeys) ? body.pqPreKeys.length : 0;
+    console.log(`[keys] PUT /v2/keys - Stored keys for ${uuid}:${identity} — EC: ${preKeyCount}, PQ: ${pqPreKeyCount}, hasSignedPreKey: ${!!body.signedPreKey}, hasIdentityKey: ${!!body.identityKey}`);
 
     res.status(200).json({ status: "SUCCESS" });
   } catch (error) {
@@ -441,13 +469,21 @@ app.put("/v2/keys", async (req: Request, res: Response) => {
   }
 });
 
+// POST /v2/keys/check — prekey consistency check (always return 200 = consistent)
+app.post("/v2/keys/check", (_req: Request, res: Response) => {
+  console.log("[keys] POST /v2/keys/check - Consistency check (always OK)");
+  res.status(200).json({});
+});
+
 app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
   try {
-    const identifier = req.params.identifier as string; // Target user's UUID
+    const identifier = req.params.identifier as string;
     
-    const rawKeys = await redis.get(`parewa:keys:${identifier}`);
-    console.log(`[keys] GET /v2/keys - Fetched keys for: ${identifier} ${rawKeys ? "FOUND" : "NULL"}`);
-    console.log(`[keys] Retrieved raw keys from Redis:`, rawKeys);
+    // Try identity-specific keys first, then fall back to plain UUID
+    let rawKeys = await redis.get(`parewa:keys:${identifier}:aci`);
+    if (!rawKeys) rawKeys = await redis.get(`parewa:keys:${identifier}`);
+    
+    console.log(`[keys] GET /v2/keys/${identifier}/* - ${rawKeys ? "FOUND" : "NOT FOUND"}`);
 
     if (!rawKeys) {
       console.log(`[keys] Keys not found for ${identifier}`);
@@ -456,16 +492,23 @@ app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
 
     const parsedData = JSON.parse(rawKeys);
 
-    let preKey = parsedData.preKey;
-    if (!preKey && Array.isArray(parsedData.preKeys) && parsedData.preKeys.length > 0) {
-      preKey = parsedData.preKeys[0]; // just grab the first one
+    // Pick one-time EC prekey (pop from list if available)
+    let preKey = undefined;
+    if (Array.isArray(parsedData.preKeys) && parsedData.preKeys.length > 0) {
+      preKey = parsedData.preKeys[0];
     }
 
+    // Pick PQ prekey: one-time first, then last-resort
     let pqPreKey = undefined;
     if (Array.isArray(parsedData.pqPreKeys) && parsedData.pqPreKeys.length > 0) {
       pqPreKey = parsedData.pqPreKeys[0];
     } else if (parsedData.pqLastResortPreKey) {
       pqPreKey = parsedData.pqLastResortPreKey;
+    }
+
+    if (!parsedData.signedPreKey) {
+      console.log(`[keys] WARNING: No signedPreKey for ${identifier}`);
+      return res.status(404).json({ error: "Incomplete keys — no signedPreKey" });
     }
 
     const responsePayload = {
@@ -481,6 +524,7 @@ app.get("/v2/keys/:identifier/*", async (req: Request, res: Response) => {
       ]
     };
 
+    console.log(`[keys] Returning keys for ${identifier}: hasPreKey=${!!preKey}, hasPqPreKey=${!!pqPreKey}`);
     res.status(200).json(responsePayload);
   } catch (error) {
     console.error("[keys] Error fetching keys:", error);
@@ -697,9 +741,37 @@ app.get("/v1/storage/auth", (_req: Request, res: Response) => {
   res.status(200).json({});
 });
 
+// Storage manifest — Signal checks this repeatedly, return empty manifest
+app.get("/v1/storage/manifest/version/:version", (_req: Request, res: Response) => {
+  res.status(200).json({ version: 0, value: "" });
+});
+
+app.get("/v1/storage/manifest", (_req: Request, res: Response) => {
+  res.status(200).json({ version: 0, value: "" });
+});
+
+app.put("/v1/storage/manifest", (_req: Request, res: Response) => {
+  res.status(200).json({});
+});
+
+// Archives — not needed for Parewa
+app.put("/v1/archives/backupid", (_req: Request, res: Response) => {
+  res.status(200).json({});
+});
+
+app.get("/v1/archives/backupid", (_req: Request, res: Response) => {
+  res.status(200).json({});
+});
+
+// Stickers — return empty
+app.get("/stickers/:pack/manifest.proto", (_req: Request, res: Response) => {
+  res.status(200).send(Buffer.alloc(0));
+});
+
 // ---- 404 Catch-All ----------------------------------------------------------
 
 app.use((_req: Request, res: Response) => {
+  console.log(`[404] ${_req.method} ${_req.url}`);
   res.status(404).json({ error: "Not found" });
 });
 

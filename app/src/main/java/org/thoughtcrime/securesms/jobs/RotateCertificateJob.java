@@ -57,32 +57,11 @@ public final class RotateCertificateJob extends BaseJob {
       return;
     }
 
-    if (TextSecurePreferences.isUnauthorizedReceived(context)) {
-      Log.i(TAG, "No longer authorized. Ignoring.");
-      return;
-    }
-
-    synchronized (RotateCertificateJob.class) {
-      Collection<CertificateType> certificateTypes = SignalStore.phoneNumberPrivacy()
-                                                                .getAllCertificateTypes();
-
-      Log.i(TAG, "Rotating these certificates " + certificateTypes);
-
-      for (CertificateType certificateType: certificateTypes) {
-        byte[] certificate;
-
-        switch (certificateType) {
-          case ACI_AND_E164: certificate = NetworkResultUtil.toBasicLegacy(SignalNetwork.certificate().getSenderCertificate()); break;
-          case ACI_ONLY    : certificate = NetworkResultUtil.toBasicLegacy(SignalNetwork.certificate().getSenderCertificateForPhoneNumberPrivacy()); break;
-          default          : throw new AssertionError();
-        }
-
-        Log.i(TAG, String.format("Successfully got %s certificate", certificateType));
-        SignalStore.certificate()
-                   .setUnidentifiedAccessCertificate(certificateType, certificate);
-      }
-    }
-
+    // PAREWA: We don't have a real certificate authority, so we skip the actual
+    // certificate rotation. SealedSenderConstraint.isMet() already returns true
+    // unconditionally, and getSealedSenderAccessFor() will return null (no cert stored),
+    // causing all sends to use the authenticated path instead of sealed sender.
+    Log.i(TAG, "PAREWA: Skipping certificate rotation — sealed sender is disabled.");
     SealedSenderConstraint.markValid();
   }
 

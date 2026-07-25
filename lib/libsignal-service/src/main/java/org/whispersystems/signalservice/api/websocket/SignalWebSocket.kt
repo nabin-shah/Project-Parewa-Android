@@ -224,13 +224,14 @@ sealed class SignalWebSocket(
     }
     
     val method = request.verb ?: "GET"
+    val jsonMediaType = okhttp3.MediaType.parse("application/json; charset=utf-8")
     if (method == "GET") {
       reqBuilder.get()
     } else if (method == "PUT") {
-      val body = okhttp3.RequestBody.create(null, request.body?.toByteArray() ?: ByteArray(0))
+      val body = okhttp3.RequestBody.create(jsonMediaType, request.body?.toByteArray() ?: ByteArray(0))
       reqBuilder.put(body)
     } else if (method == "POST") {
-      val body = okhttp3.RequestBody.create(null, request.body?.toByteArray() ?: ByteArray(0))
+      val body = okhttp3.RequestBody.create(jsonMediaType, request.body?.toByteArray() ?: ByteArray(0))
       reqBuilder.post(body)
     } else if (method == "DELETE") {
       reqBuilder.delete()
