@@ -53,7 +53,7 @@ class RemoteConfigApi(val authWebSocket: SignalWebSocket.AuthenticatedWebSocket,
         NetworkResult.Success(
           RemoteConfigResult(
             config = transformed,
-            serverEpochTimeMilliseconds = response.getHeader(SignalWebSocket.SERVER_DELIVERED_TIMESTAMP_HEADER).toLongOrNull() ?: System.currentTimeMillis(),
+            serverEpochTimeMilliseconds = response.getHeader(SignalWebSocket.SERVER_DELIVERED_TIMESTAMP_HEADER)?.toLongOrNull() ?: System.currentTimeMillis(),
             eTag = response.headers["etag"]
           )
         )
