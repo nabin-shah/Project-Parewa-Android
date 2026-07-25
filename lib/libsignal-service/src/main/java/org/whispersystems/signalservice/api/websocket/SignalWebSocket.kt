@@ -18,6 +18,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.signal.core.util.SleepTimer
 import org.signal.core.util.logging.Log
 import org.signal.core.util.orNull
@@ -224,14 +226,14 @@ sealed class SignalWebSocket(
     }
     
     val method = request.verb ?: "GET"
-    val jsonMediaType = okhttp3.MediaType.parse("application/json; charset=utf-8")
+    val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     if (method == "GET") {
       reqBuilder.get()
     } else if (method == "PUT") {
-      val body = okhttp3.RequestBody.create(jsonMediaType, request.body?.toByteArray() ?: ByteArray(0))
+      val body = (request.body?.toByteArray() ?: ByteArray(0)).toRequestBody(jsonMediaType)
       reqBuilder.put(body)
     } else if (method == "POST") {
-      val body = okhttp3.RequestBody.create(jsonMediaType, request.body?.toByteArray() ?: ByteArray(0))
+      val body = (request.body?.toByteArray() ?: ByteArray(0)).toRequestBody(jsonMediaType)
       reqBuilder.post(body)
     } else if (method == "DELETE") {
       reqBuilder.delete()
