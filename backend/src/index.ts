@@ -659,13 +659,29 @@ async function getIdentityKeyForUser(identifier: string): Promise<string> {
   return "BQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 }
 
+async function getUserPhoneNumber(identifier: string): Promise<string> {
+  const userJson = await redis.get(`parewa:user:${identifier}`);
+  if (userJson) {
+    try {
+      const user = JSON.parse(userJson);
+      if (user.phone_number) return user.phone_number;
+      if (user.number) return user.number;
+    } catch (e) {
+      console.error(`[profile] Error parsing user data for ${identifier}:`, e);
+    }
+  }
+  return "+12345678900"; // Valid E164 default fallback
+}
+
 app.get(["/v1/profiles/:identifier", "/v1/profiles/:identifier/*"], async (req: Request, res: Response) => {
   const identifier = req.params.identifier as string;
   console.log(`[mock] GET ${req.path} for identifier ${identifier}`);
   const identityKey = await getIdentityKeyForUser(identifier);
+  const fetchedNumber = await getUserPhoneNumber(identifier);
   res.status(200).json({
     identityKey: identityKey,
     name: "Parewa User",
+    number: fetchedNumber,
     username: "",
     about: "",
     aboutEmoji: "",
@@ -681,9 +697,11 @@ app.get(["/v1/profile/:uuid", "/v1/profile/:uuid/*"], async (req: Request, res: 
   const uuid = req.params.uuid as string;
   console.log(`[mock] GET ${req.path} for uuid ${uuid}`);
   const identityKey = await getIdentityKeyForUser(uuid);
+  const fetchedNumber = await getUserPhoneNumber(uuid);
   res.status(200).json({
     identityKey: identityKey,
     name: "Parewa User",
+    number: fetchedNumber,
     username: "",
     about: "",
     aboutEmoji: "",
@@ -707,11 +725,16 @@ app.put("/v1/messages/:destination", async (req: Request, res: Response) => {
     const urgent = body.urgent || false;
 
     for (const msg of messages) {
-      // Map OutgoingPushMessage to Envelope format expected by Android client
+      // Map OutgoingPushMessage to Envelope format expected by Android client,
+      // explicitly stamping sourceUuid and sourceDevice to prevent InvalidMessageStructureException
       const envelope = {
         type: msg.type,
+        source: senderUuid,
+        sourceUuid: senderUuid,
         sourceServiceId: senderUuid,
-        sourceDeviceId: 1, // Defaulting to 1 for MVP
+        sourceDevice: msg.destinationDeviceId || msg.sourceDeviceId || 1,
+        sourceDeviceId: msg.destinationDeviceId || msg.sourceDeviceId || 1,
+        destinationUuid: destination,
         destinationServiceId: destination,
         clientTimestamp: timestamp,
         serverTimestamp: Date.now(),
